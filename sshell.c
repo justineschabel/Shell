@@ -12,33 +12,34 @@ void our_exit(){
 
 
 void our_pwd(){
-	char *buffer = malloc(512); //ASK how big the path can be 
-	fprintf(stdout, "%s\n" , getcwd(buffer, 512)); //ASK: "usage: pwd [-L | -P]" exit [1]
+	fprintf(stdout, "%s\n" , getcwd(NULL, 0)); //ASK: "usage: pwd [-L | -P]" exit [1] ??don't need anymore??
 	return;
 }
 
 
-void our_cd(char* path){
-	fprintf(stdout, "Path: %s", path );
-	char *directory_cmd = malloc(1);
-	directory_cmd[0] = '.';
-	if(strcmp(path, directory_cmd)==0){
-		fprintf(stdout, "up one directory");
-	}
-	else{
-		// char *buffer = malloc(512); //ASK how big the path can be 
-		// char* current_path = getcwd(buffer, 512);
+void our_cd(char* path, int* status){ //need status for error number
+	if(strcmp(path, "..") == 0){
+		char* current_path = getcwd(NULL, 0);
+		char* lastSlash = strrchr(current_path, '/'); //finds index of last slash
+		free(path);
+		path = malloc(lastSlash - current_path + 1);
+		memcpy(path, current_path, lastSlash - current_path + 1);
 
-		//chdir();
 	}
+		*status = chdir(path);
+		if(*status < 0) //error changing directory
+		{
+			fprintf(stderr, "Error: no such directory\n");
+			*status = 1;
+		}
 	return;
 }
 
 
 /**
 arguments:
-	*potentially move command and args into a struct 
-	@command - The entire command line 
+	*potentially move command and args into a struct
+	@command - The entire command line
 	@program_name - exclusively the program name/first argument
 	@new_args - an array of every argument name including program_name
 purpose:
@@ -53,16 +54,16 @@ purpose:
 
 // 	for(int i= 0; i < strlen(command); i++){
 // 		fprintf(stdout,"command: %s\n", command);
-// 		if(command[i] != ' '){ 
+// 		if(command[i] != ' '){
 // 			buffer[buffer_index] = command[i];
 // 			buffer_index++;
 
-// 			if(new_args_index == 0){ //first characters are the program name 
+// 			if(new_args_index == 0){ //first characters are the program name
 // 				program_name[i] = command[i];
 // 				program_size++;
 // 			}
 // 		}
-// 		else{ //whitespace 
+// 		else{ //whitespace
 // 			while(command[i] == ' '){ //eat up all whitespace
 // 				i++;
 // 				fprintf(stdout, "i in while: %d \n", i);
@@ -90,21 +91,21 @@ void parse_args(const char* command, char* program_name, char** new_args){
 	int program_size = 0;
 
 	for(int i= 0; i < strlen(command); i++){
-		if(command[i] != ' '){ 
+		if(command[i] != ' '){
 			buffer[buffer_index] = command[i];
 			buffer_index++;
 
-			if(new_args_index == 0){ //first characters are the program name 
+			if(new_args_index == 0){ //first characters are the program name
 				program_name[i] = command[i];
 				program_size++;
 			}
 		}
-		else{ //whitespace 
+		else{ //whitespace
 			while(command[i] == ' '){ //eat up all whitespace
 				i++;
 			}
-
-			fprintf(stdout, "Buffer: %s", buffer);
+			i--;
+			//fprintf(stdout, "Buffer: %s", buffer);
 
 			if (new_args_index == 0){
 				new_args[0] = malloc(program_size);
@@ -118,6 +119,12 @@ void parse_args(const char* command, char* program_name, char** new_args){
 			new_args_index ++;
 			buffer_index = 0;
 		}
+	}
+	if(buffer_index > 0) //leftover in buffer
+	{
+		new_args[new_args_index] = malloc(buffer_index);
+		memcpy(new_args[new_args_index], buffer, buffer_index);
+		new_args_index ++;
 	}
 	new_args[new_args_index] = NULL;
 }
@@ -139,28 +146,42 @@ int main(int argc, char *argv[])
 		char **args = malloc(17*sizeof(char*));
 		char *program_name = malloc(cmdSize);
 
-		parse_args(cmd, program_name ,args); 	
+		parse_args(cmd, program_name ,args);
 
 
 		pid = fork();
 		if(pid == 0) //execute command as child
 		{
+			if(strcmp(program_name, "exit") == 0){
+				exit(0);
+			}
+			else if (strcmp(program_name, "pwd") == 0){
+				exit(0);
+			}
+			else if(strcmp(program_name, "cd") == 0){
+				exit(0);
+			}
 			status = execvp(program_name, args);
 			exit(1);
 		}
 		else if(pid > 0)
 		{
+			waitpid(-1, &status, 0);
 			if(strcmp(program_name, "exit") == 0){
 				our_exit();
 			}
 			else if (strcmp(program_name, "pwd") == 0){
 				our_pwd();
+				fprintf(stderr, "+ completed '%s': [%d]\n", cmd , 0);
 			}
 			else if(strcmp(program_name, "cd") == 0){
-				our_cd(args[1]);
+				our_cd(args[1], &status);
+				fprintf(stderr, "+ completed '%s': [%d]\n", cmd , status);
 			}
-			waitpid(-1, &status, 0);
-			fprintf(stderr, "+ completed '%s': [%d]\n", cmd , WEXITSTATUS(status));
+			else
+			{
+				fprintf(stderr, "+ completed '%s': [%d]\n", cmd , WEXITSTATUS(status));
+			}
 		}
 		else
 		{
