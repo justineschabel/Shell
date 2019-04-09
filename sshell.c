@@ -4,28 +4,29 @@
 #include <sys/wait.h>
 #include <string.h>
 
-
-struct address 
-{ 
-   char name[50]; 
-   char street[100]; 
-};
+/**
+arguments:
+	*potentially move command and args into a struct 
+	@command - The entire command line 
+	@program_mane - exclusively the program name/first argument
+	@new_args - an array of every argument name including program_name
+purpose:
+	parse and store the entire command line
+**/
 
 void parse_args(const char* command, char* program_name, char** new_args){
-	char new_line = '\n';
 	char *buffer = malloc(512);
 	int buffer_index = 0;
 	int new_args_index = 0;
 
-	do{
-		scanf("%c",&new_line);
-		if(new_line != ' '){ //character
-			buffer[buffer_index] = new_line;
+	for(int i= 0; i < strlen(command); i++){
+		if(command[i] != ' '){ 
+			buffer[buffer_index] = command[i];
 			buffer_index++;
 		}
 		else{ //whitespace 
-			while(new_line == ' '){ //eat up all whitespace
-				scanf("%c", &new_line);
+			while(command[i] == ' '){ //eat up all whitespace
+				i++;
 			}
 			if(new_args_index == 0){ //first characters are the program name 
 				memcpy(program_name, buffer, buffer_index);
@@ -37,11 +38,9 @@ void parse_args(const char* command, char* program_name, char** new_args){
 			buffer_index = 0;
 			new_args_index ++;
 		}
-	} while(new_line != '\n');
-
-
-
+	}
 }
+
 
 int main(int argc, char *argv[])
 {
@@ -53,9 +52,7 @@ int main(int argc, char *argv[])
 	while(1)
 	{
 		fprintf(stdout, "sshell$ ");
-		//int len = 
 		getline(&cmd, &cmdSize, stdin);
-		//cmd[len - 1] = '\0'; //replace newline at end
 
 		char **args = malloc(17*sizeof(char*));
 		char *program_name = malloc(cmdSize);
