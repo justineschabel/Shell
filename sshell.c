@@ -84,14 +84,40 @@ purpose:
 // 	new_args[new_args_index] = NULL;
 // }
 
-void parse_args(const char* command, char* program_name, char** new_args){
+int isSpecialChar(char toCheck)
+{
+	return toCheck == '&' || toCheck == '|' || toCheck == '>' || toCheck == '<';
+}
+
+int parse_args(const char* command, char* program_name, char** new_args){ //special characters (< > & |) can have not spaces around them, so need to check for those specifically
 	char *buffer = malloc(512);
 	int buffer_index = 0;
 	int new_args_index = 0;
 	int program_size = 0;
 
 	for(int i= 0; i < strlen(command); i++){
-		if(command[i] != ' '){
+		if(isSpecialChar(command[i]))
+		{
+			while(command[i] == ' '){ //eat up all whitespace
+				i++;
+			}
+			i--; //go back one
+			if (new_args_index == 0){
+				return -1; //corresponds to invalid command line
+			}
+			else
+			{
+				new_args[new_args_index] = malloc(buffer_index);
+				memcpy(new_args[new_args_index], buffer, buffer_index); //copy over buffer first
+				new_args_index ++;
+				char arg[1] = {command[i]};
+				new_args[new_args_index] = arg;
+				memset(buffer, 0, buffer_index);
+				new_args_index ++;
+				buffer_index = 0;
+			}
+		}
+		else if(command[i] != ' '){
 			buffer[buffer_index] = command[i];
 			buffer_index++;
 
@@ -104,7 +130,7 @@ void parse_args(const char* command, char* program_name, char** new_args){
 			while(command[i] == ' '){ //eat up all whitespace
 				i++;
 			}
-			i--;
+			i--; //go back one
 			//fprintf(stdout, "Buffer: %s", buffer);
 
 			if (new_args_index == 0){
@@ -127,6 +153,7 @@ void parse_args(const char* command, char* program_name, char** new_args){
 		new_args_index ++;
 	}
 	new_args[new_args_index] = NULL;
+	return 0;
 }
 
 
@@ -146,7 +173,12 @@ int main(int argc, char *argv[])
 		char **args = malloc(17*sizeof(char*));
 		char *program_name = malloc(cmdSize);
 
-		parse_args(cmd, program_name ,args);
+		status = parse_args(cmd, program_name ,args);
+		if(status == -1)
+		{
+			fprintf(stderr, "Error: invalid command line\n");
+			continue;
+		}
 
 
 		pid = fork();
