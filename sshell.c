@@ -3,6 +3,30 @@
 #include <unistd.h>
 #include <sys/wait.h>
 #include <string.h>
+#include <fcntl.h>
+#define COMMANDLINE_MAX 512
+/**
+purpose: 
+	use file input for command
+inputs:
+	@filename: command line file name to be used as input 
+**/
+void redirect_input(char* filename){
+	int fd = open(filename, O_RDONLY);
+	close(STDIN_FILENO);
+	dup2(fd,STDIN_FILENO);
+	close(fd); 
+}
+
+int get_filename(char* filename, const char* command, int starting_index){
+	int filename_index = 0;
+	while(command[starting_index] != ' ' && command[starting_index] != '\0'){
+		filename[filename_index] = command[starting_index];
+		filename_index++;
+		starting_index++;
+	}
+	return starting_index;
+}
 
 
 void our_exit(){
@@ -11,9 +35,8 @@ void our_exit(){
 }
 
 
-void our_pwd(){
-	fprintf(stdout, "%s\n" , getcwd(NULL, 0)); //ASK: "usage: pwd [-L | -P]" exit [1] ??don't need anymore??
-	return;
+void our_pwd(){ 
+	fprintf(stdout, "%s\n" , getcwd(NULL, 0)); 
 }
 
 
@@ -36,53 +59,6 @@ void our_cd(char* path, int* status){ //need status for error number
 }
 
 
-/**
-arguments:
-	*potentially move command and args into a struct
-	@command - The entire command line
-	@program_name - exclusively the program name/first argument
-	@new_args - an array of every argument name including program_name
-purpose:
-	parse and store the entire command line
-**/
-
-// void parse_args(const char* command, char* program_name, char** new_args){
-// 	char *buffer = malloc(512);
-// 	int buffer_index = 0;
-// 	int new_args_index = 0;
-// 	int program_size = 0;
-
-// 	for(int i= 0; i < strlen(command); i++){
-// 		fprintf(stdout,"command: %s\n", command);
-// 		if(command[i] != ' '){
-// 			buffer[buffer_index] = command[i];
-// 			buffer_index++;
-
-// 			if(new_args_index == 0){ //first characters are the program name
-// 				program_name[i] = command[i];
-// 				program_size++;
-// 			}
-// 		}
-// 		else{ //whitespace
-// 			while(command[i] == ' '){ //eat up all whitespace
-// 				i++;
-// 				fprintf(stdout, "i in while: %d \n", i);
-// 			}
-// 			//memcpy(new_args[0], program_name, program_size);
-// 			fprintf(stdout, "i after while: %d, %c \n", i, command[i]);
-// 			new_args[new_args_index] = malloc(buffer_index);
-
-// 			fprintf(stdout, "Buffer: %s\n", buffer);
-
-// 			memcpy(new_args[new_args_index], buffer, buffer_index);
-// 			memset(buffer, 0, buffer_index);
-// 			buffer_index = 0;
-// 			new_args_index ++;
-// 			fprintf(stdout, "\n %d \n", i);
-// 		}
-// 	}
-// 	new_args[new_args_index] = NULL;
-// }
 
 int isSpecialChar(char toCheck)
 {
@@ -90,7 +66,7 @@ int isSpecialChar(char toCheck)
 }
 
 int parse_args(const char* command, char* program_name, char** new_args){ //special characters (< > & |) can have not spaces around them, so need to check for those specifically
-	char *buffer = malloc(512);
+	char *buffer = malloc(COMMANDLINE_MAX);
 	int buffer_index = 0;
 	int new_args_index = 0;
 	int program_size = 0;
@@ -98,10 +74,20 @@ int parse_args(const char* command, char* program_name, char** new_args){ //spec
 	for(int i= 0; i < strlen(command); i++){
 		if(isSpecialChar(command[i]))
 		{
+			char special_command = command[i];
+			i++;
 			while(command[i] == ' '){ //eat up all whitespace
 				i++;
 			}
-			i--; //go back one
+			//i--; //go back one
+
+			if(special_command == '<'){
+				char* filename = malloc(COMMANDLINE_MAX);
+				i = get_filename(filename, command, i);
+				fprintf(stdout, "%s\n", filename);
+				redirect_input(filename);
+			}
+
 			if (new_args_index == 0){
 				return -1; //corresponds to invalid command line
 			}
@@ -110,7 +96,8 @@ int parse_args(const char* command, char* program_name, char** new_args){ //spec
 				new_args[new_args_index] = malloc(buffer_index);
 				memcpy(new_args[new_args_index], buffer, buffer_index); //copy over buffer first
 				new_args_index ++;
-				char arg[1] = {command[i]};
+
+				char arg[1] = {command[i]}; //Adds special char to args, need to call function
 				new_args[new_args_index] = arg;
 				memset(buffer, 0, buffer_index);
 				new_args_index ++;
@@ -159,12 +146,11 @@ int parse_args(const char* command, char* program_name, char** new_args){ //spec
 
 int main(int argc, char *argv[])
 {
-	size_t cmdSize = 512;
+	size_t cmdSize = COMMANDLINE_MAX;
 	char *cmd = malloc(cmdSize);
 	int status;
 	int pid;
 
-	//site skeleton code
 	while(1)
 	{
 		fprintf(stdout, "sshell$ ");
