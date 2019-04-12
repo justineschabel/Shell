@@ -35,12 +35,11 @@ inputs:
 **/
 int redirect_input(char* filename){
 	int fd = open(filename, O_RDONLY);
-	printf("%d\n", fd);
 	if(fd == -1)
 	{
 		return NO_INPUT_FILE;
 	}
-	close(STDIN_FILENO);
+	//close(STDIN_FILENO);
 	dup2(fd,STDIN_FILENO);
 	close(fd);
 	return 0;
@@ -185,6 +184,8 @@ int main(int argc, char *argv[])
 	commands[0].args = malloc(17*sizeof(char*));
 	while(1)
 	{
+		commands[0].input_file = "";
+		commands[0].output_file = "";
 		fprintf(stdout, "sshell$ ");
 		int length = getline(&cmd, &cmdSize, stdin);
 		cmd[length-1] = '\0';
@@ -199,7 +200,8 @@ int main(int argc, char *argv[])
 		pid = fork();
 		if(pid == 0) //execute command as child
 		{
-			if(strlen(commands[0].input_file)) //input redirection
+			printf("%ld\n", strlen(commands[0].input_file));
+			if(strlen(commands[0].input_file) > 0) //input redirection
 			{
 				int stat = redirect_input(commands[0].input_file);
 				if(stat == NO_INPUT_FILE)
@@ -208,15 +210,15 @@ int main(int argc, char *argv[])
 					continue;
 				}
 			}
-			if(strcmp(commands[0].args[0], "exit") == 0){
-				exit(0);
+			/*if(strcmp(commands[0].args[0], "exit") == 0){
+				our_exit();
 			}
 			else if (strcmp(commands[0].args[0], "pwd") == 0){
 				exit(0);
 			}
 			else if(strcmp(commands[0].args[0], "cd") == 0){
 				exit(0);
-			}
+			}*/
 			status = execvp(commands[0].args[0], commands[0].args);
 			exit(1);
 		}
