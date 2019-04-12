@@ -45,6 +45,24 @@ int redirect_input(char* filename){
 	return 0;
 }
 
+/**
+purpose:
+	use file output for command
+inputs:
+	@filename: command line file name to be used as output
+**/
+int redirect_output(char* filename){
+	int fd = open(filename, O_RDWR);
+	if(fd == -1)
+	{
+		return NO_OUTPUT_FILE;
+	}
+	//close(STDOUT_FILENO);
+	dup2(fd,STDOUT_FILENO);
+	close(fd);
+	return 0;
+}
+
 int get_filename(char* filename, const char* command, int starting_index){
 	int filename_index = 0;
 	while(command[starting_index] != ' ' && command[starting_index] != '\0'){
@@ -115,7 +133,7 @@ int parse_args(struct Command *commands, const char* command){ //special charact
 				{
 					return NO_INPUT_FILE;
 				}
-				fprintf(stdout, "%s\n", filename);
+				//fprintf(stdout, "%s\n", filename);
 				commands[struct_index].input_file = malloc(strlen(filename));
 				memcpy(commands[struct_index].input_file, filename, strlen(filename));
 			}
@@ -126,24 +144,24 @@ int parse_args(struct Command *commands, const char* command){ //special charact
 				{
 					return NO_OUTPUT_FILE;
 				}
-				fprintf(stdout, "%s\n", filename);
+				//fprintf(stdout, "%s\n", filename);
 				commands[struct_index].output_file = malloc(strlen(filename));
 				memcpy(commands[struct_index].output_file, filename, strlen(filename));
 			}
+
 			if (new_args_index == 0){
-				return INV_CMDLINE; //corresponds to invalid command line
+				return INV_CMDLINE;
 			}
 			else
 			{
-				commands[struct_index].args[new_args_index] = malloc(buffer_index);
-				memcpy(commands[struct_index].args[new_args_index], buffer, buffer_index); //copy over buffer first
-				new_args_index ++;
-
-				char arg[1] = {command[i]}; //Adds special char to args, need to call function
-				commands[struct_index].args[new_args_index] = arg;
-				memset(buffer, 0, buffer_index);
-				new_args_index ++;
-				buffer_index = 0;
+				if(buffer_index > 0)
+				{
+					commands[struct_index].args[new_args_index] = malloc(buffer_index);
+					memcpy(commands[struct_index].args[new_args_index], buffer, buffer_index); //copy over buffer first
+					memset(buffer, 0, buffer_index);
+					new_args_index ++;
+					buffer_index = 0;
+				}
 			}
 		}
 		else if(command[i] != ' '){
@@ -154,21 +172,24 @@ int parse_args(struct Command *commands, const char* command){ //special charact
 			while(command[i] == ' '){ //eat up all whitespace
 				i++;
 			}
-			i--; //go back one
+			i--; //go back one since for loop increments
 			//fprintf(stdout, "Buffer: %s", buffer);
-			commands[struct_index].args[new_args_index] = malloc(buffer_index);
-			memcpy(commands[struct_index].args[new_args_index], buffer, buffer_index);
-			memset(buffer, 0, buffer_index);
-			new_args_index ++;
-			buffer_index = 0;
+			if(buffer_index > 0)
+			{
+				commands[struct_index].args[new_args_index] = malloc(buffer_index);
+				memcpy(commands[struct_index].args[new_args_index], buffer, buffer_index);
+				memset(buffer, 0, buffer_index);
+				new_args_index ++;
+				buffer_index = 0;
+			}
 		}
 	}
 	if(buffer_index > 0) //leftover in buffer
 	{
 		commands[struct_index].args[new_args_index] = malloc(buffer_index);
 		memcpy(commands[struct_index].args[new_args_index], buffer, buffer_index);
-		new_args_index ++;
 	}
+	new_args_index ++;
 	commands[struct_index].args[new_args_index] = NULL;
 	return NO_ERR;
 }
@@ -181,9 +202,9 @@ int main(int argc, char *argv[])
 	int status;
 	int pid;
 	struct Command *commands = malloc(sizeof(struct Command));
-	commands[0].args = malloc(17*sizeof(char*));
 	while(1)
 	{
+		commands[0].args = malloc(17*sizeof(char*));
 		commands[0].input_file = "";
 		commands[0].output_file = "";
 		fprintf(stdout, "sshell$ ");
@@ -200,7 +221,10 @@ int main(int argc, char *argv[])
 		pid = fork();
 		if(pid == 0) //execute command as child
 		{
-			printf("%ld\n", strlen(commands[0].input_file));
+			//printf("%s\n", commands[0].args[0]);
+			//printf("%s\n", commands[0].args[1]);
+			//printf("%s\n", commands[0].args[2]);
+
 			if(strlen(commands[0].input_file) > 0) //input redirection
 			{
 				int stat = redirect_input(commands[0].input_file);
@@ -210,15 +234,24 @@ int main(int argc, char *argv[])
 					continue;
 				}
 			}
-			/*if(strcmp(commands[0].args[0], "exit") == 0){
-				our_exit();
+			if(strlen(commands[0].output_file) > 0)
+			{
+				int stat = redirect_output(commands[0].output_file);
+				if(stat == NO_OUTPUT_FILE)
+				{
+					fprintf(stderr, "Error: cannot open output file\n");
+					continue;
+				}
+			}
+			if(strcmp(commands[0].args[0], "exit") == 0){ //don't want child to execute these commands
+				exit(0);
 			}
 			else if (strcmp(commands[0].args[0], "pwd") == 0){
 				exit(0);
 			}
 			else if(strcmp(commands[0].args[0], "cd") == 0){
 				exit(0);
-			}*/
+			}
 			status = execvp(commands[0].args[0], commands[0].args);
 			exit(1);
 		}
