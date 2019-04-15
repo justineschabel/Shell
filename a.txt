@@ -1,0 +1,10 @@
+a.txt
+core
+file
+makefile
+p1
+README.md
+sftp-config.json
+sshell
+sshell.c
+sshell.o

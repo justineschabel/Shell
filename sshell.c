@@ -37,9 +37,8 @@ int redirect_input(char* filename){
 	int fd = open(filename, O_RDONLY);
 	if(fd == -1)
 	{
-		return NO_INPUT_FILE;
+		return CANT_OPN_INPUT_FILE;
 	}
-	//close(STDIN_FILENO);
 	dup2(fd,STDIN_FILENO);
 	close(fd);
 	return 0;
@@ -52,25 +51,33 @@ inputs:
 	@filename: command line file name to be used as output
 **/
 int redirect_output(char* filename){
-	int fd = open(filename, O_RDWR);
+	int fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
 	if(fd == -1)
 	{
-		return NO_OUTPUT_FILE;
+		return CANT_OPN_OUTPUT_FILE;
 	}
-	//close(STDOUT_FILENO);
 	dup2(fd,STDOUT_FILENO);
 	close(fd);
 	return 0;
 }
 
+
+int isSpecialChar(char toCheck)
+{
+	return toCheck == '&' || toCheck == '|' || toCheck == '>' || toCheck == '<';
+}
+
+
 int get_filename(char* filename, const char* command, int starting_index){
 	int filename_index = 0;
-	while(command[starting_index] != ' ' && command[starting_index] != '\0'){
-		filename[filename_index] = command[starting_index];
+	int command_index = starting_index;
+	while(command[command_index] != ' ' && command[command_index] != '\0' && isSpecialChar(command[command_index]) == 0) //last condition
+	{
+		filename[filename_index] = command[command_index];
 		filename_index++;
-		starting_index++;
+		command_index++;
 	}
-	return starting_index;
+	return command_index;
 }
 
 
@@ -104,12 +111,6 @@ void our_cd(char* path, int* status){ //need status for error number
 }
 
 
-
-int isSpecialChar(char toCheck)
-{
-	return toCheck == '&' || toCheck == '|' || toCheck == '>' || toCheck == '<';
-}
-
 int parse_args(struct Command *commands, const char* command){ //special characters (< > & |) can have not spaces around them, so need to check for those specifically
 	char *buffer = malloc(COMMANDLINE_MAX);
 	int buffer_index = 0;
@@ -119,49 +120,53 @@ int parse_args(struct Command *commands, const char* command){ //special charact
 	for(int i= 0; i < strlen(command); i++){
 		if(isSpecialChar(command[i]))
 		{
+			if (new_args_index == 0 && struct_index == 0){
+				return INV_CMDLINE;
+			}
+			if(buffer_index > 0)
+			{
+				commands[struct_index].args[new_args_index] = malloc(buffer_index);
+				memcpy(commands[struct_index].args[new_args_index], buffer, buffer_index); //copy over buffer first
+				memset(buffer, 0, buffer_index);
+				new_args_index ++;
+				buffer_index = 0;
+			}
 			char special_command = command[i];
 			i++;
 			while(command[i] == ' '){ //eat up all whitespace
 				i++;
 			}
-			//i--; //go back one
-
 			if(special_command == '<'){
 				char* filename = malloc(COMMANDLINE_MAX);
 				i = get_filename(filename, command, i);
+				i--; //go back one
 				if(strlen(filename) == 0) //no file
 				{
 					return NO_INPUT_FILE;
 				}
-				//fprintf(stdout, "%s\n", filename);
 				commands[struct_index].input_file = malloc(strlen(filename));
 				memcpy(commands[struct_index].input_file, filename, strlen(filename));
 			}
 			if(special_command == '>'){
 				char* filename = malloc(COMMANDLINE_MAX);
 				i = get_filename(filename, command, i);
+				i--; //go back one
 				if(strlen(filename) == 0) //no file
 				{
 					return NO_OUTPUT_FILE;
 				}
-				//fprintf(stdout, "%s\n", filename);
 				commands[struct_index].output_file = malloc(strlen(filename));
 				memcpy(commands[struct_index].output_file, filename, strlen(filename));
 			}
-
-			if (new_args_index == 0){
-				return INV_CMDLINE;
-			}
-			else
+			if(special_command == '|') //copy buffer into last part of command, setup new command
 			{
-				if(buffer_index > 0)
-				{
-					commands[struct_index].args[new_args_index] = malloc(buffer_index);
-					memcpy(commands[struct_index].args[new_args_index], buffer, buffer_index); //copy over buffer first
-					memset(buffer, 0, buffer_index);
-					new_args_index ++;
-					buffer_index = 0;
-				}
+				commands[struct_index].args[new_args_index] = NULL;
+				new_args_index = 0;
+
+				struct_index++;
+				commands[struct_index].args = malloc(17 * sizeof(char*));
+				commands[struct_index].input_file = "";
+				commands[struct_index].output_file = "";
 			}
 		}
 		else if(command[i] != ' '){
@@ -173,7 +178,6 @@ int parse_args(struct Command *commands, const char* command){ //special charact
 				i++;
 			}
 			i--; //go back one since for loop increments
-			//fprintf(stdout, "Buffer: %s", buffer);
 			if(buffer_index > 0)
 			{
 				commands[struct_index].args[new_args_index] = malloc(buffer_index);
@@ -191,7 +195,46 @@ int parse_args(struct Command *commands, const char* command){ //special charact
 	}
 	new_args_index ++;
 	commands[struct_index].args[new_args_index] = NULL;
+	if(struct_index > 0) //piping
+	{
+		for(int i = 0; i <= struct_index; i++)
+		{
+			if(i > 0 && strlen(commands[i].input_file) > 0)
+			{
+				return MISLOC_INPUT_REDIR;
+			}
+			if(i < struct_index && strlen(commands[i].output_file) > 0)
+			{
+				return MISLOC_OUTPUT_REDIR;
+			}
+		}
+	}
 	return NO_ERR;
+}
+
+int errorMessage(int err)
+{
+	int noErr = 1; //assume error
+	switch (err) {
+		case INV_CMDLINE:
+			fprintf(stderr, "Error: invalid command line\n");
+			break;
+		case NO_INPUT_FILE:
+			fprintf(stderr, "Error: no input file\n");
+			break;
+		case NO_OUTPUT_FILE:
+			fprintf(stderr, "Error: no output file\n");
+			break;
+		case MISLOC_INPUT_REDIR:
+			fprintf(stderr, "Error: mislocated input redirection\n");
+			break;
+		case MISLOC_OUTPUT_REDIR:
+			fprintf(stderr, "Error: mislocated output redirection\n");
+			break;
+		default:
+			noErr = 0;
+	}
+	return noErr;
 }
 
 
@@ -201,30 +244,28 @@ int main(int argc, char *argv[])
 	char *cmd = malloc(cmdSize);
 	int status;
 	int pid;
-	struct Command *commands = malloc(sizeof(struct Command));
+	struct Command *commands = malloc(10 * sizeof(struct Command)); //assume at most 10 pipes? prob need to realloc in parser every time we see pipe
 	while(1)
 	{
-		commands[0].args = malloc(17*sizeof(char*));
+		commands[0].args = malloc(17 * sizeof(char*));
 		commands[0].input_file = "";
 		commands[0].output_file = "";
 		fprintf(stdout, "sshell$ ");
 		int length = getline(&cmd, &cmdSize, stdin);
+		if (!isatty(STDIN_FILENO)) {
+        printf("%s", cmd);
+        fflush(stdout);
+    }
 		cmd[length-1] = '\0';
 		status = parse_args(commands, cmd);
-		if(status == -1)
+		int error = errorMessage(status);
+		if(error)
 		{
-			fprintf(stderr, "Error: invalid command line\n");
 			continue;
 		}
-
-
 		pid = fork();
 		if(pid == 0) //execute command as child
 		{
-			//printf("%s\n", commands[0].args[0]);
-			//printf("%s\n", commands[0].args[1]);
-			//printf("%s\n", commands[0].args[2]);
-
 			if(strlen(commands[0].input_file) > 0) //input redirection
 			{
 				int stat = redirect_input(commands[0].input_file);
@@ -263,20 +304,20 @@ int main(int argc, char *argv[])
 			}
 			else if (strcmp(commands[0].args[0], "pwd") == 0){
 				our_pwd();
-				fprintf(stderr, "+ completed '%s': [%d]\n", cmd , 0);
+				fprintf(stderr, "+ completed '%s' [%d]\n", cmd , 0);
 			}
 			else if(strcmp(commands[0].args[0], "cd") == 0){
 				our_cd(commands[0].args[1], &status);
-				fprintf(stderr, "+ completed '%s': [%d]\n", cmd , status);
+				fprintf(stderr, "+ completed '%s' [%d]\n", cmd , status);
 			}
 			else
 			{
-				fprintf(stderr, "+ completed '%s': [%d]\n", cmd , WEXITSTATUS(status));
+				fprintf(stderr, "+ completed '%s' [%d]\n", cmd , WEXITSTATUS(status));
 			}
 		}
 		else
 		{
-			fprintf(stderr, "u gofed");
+			fprintf(stderr, "u gofed\n");
 		}
 	}
 
