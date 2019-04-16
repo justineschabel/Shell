@@ -6,6 +6,9 @@
 #include <fcntl.h>
 #define COMMANDLINE_MAX 512
 
+
+
+
 struct Command {
 	char** args;
 	char* input_file;
@@ -61,6 +64,73 @@ int redirect_output(char* filename){
 	return 0;
 }
 
+void execute_pipe(struct Command *commands, int num_commands, int* err_codes){
+	int *fd = malloc(2*num_commands*sizeof(int));
+	int stat = 0;
+	for(int i =0; i < num_commands; i++)
+	{
+		pipe(fd + i*1);
+	}
+
+
+	for(int i = 0; i < num_commands; i++)
+	{
+		fprintf(stderr, "Read: %d Write: %d\n ", fd[i], fd[i+1]);
+		
+
+		int pid = fork();
+		if (pid == 0) 
+		{		
+			if(i != 0) //Not first command, redirect output
+			{
+				//close(fd[1+i*2]);
+				dup2(fd[i],STDIN_FILENO);
+				//close(fd[0+i*2]);
+				
+			}
+			else //First Command, redirect input
+			{
+				if(strlen(commands[i].input_file) > 0) //input redirection
+				{
+					stat = redirect_input(commands[i].input_file);
+					if(stat == NO_INPUT_FILE)
+					{
+						fprintf(stderr, "Error: cannot open input file\n");
+						return;
+					}
+				}
+			}
+
+			if(i == num_commands-1)
+			{ //Last command, redirect output 
+					if(strlen(commands[i].output_file) > 0)
+					{
+						stat = redirect_output(commands[i].output_file);
+						if(stat == NO_OUTPUT_FILE)
+						{
+							fprintf(stderr, "Error: cannot open output file\n");
+							return;
+						} 
+					}
+			}
+			else{
+				//close(fd[0+2*i]);
+				dup2(fd[1+i], STDOUT_FILENO);
+				//close(fd[1+i*2]);
+			}
+			stat = execvp(commands[i].args[0], commands[i].args);
+		}
+		else{
+			waitpid(-1, &stat,0);
+			err_codes[i] = WEXITSTATUS(stat);
+		}
+	} //for
+	for(int i = 0; i < num_commands*2; i++){
+		close(fd[i]);
+	}
+} //function
+
+
 
 int isSpecialChar(char toCheck)
 {
@@ -111,7 +181,7 @@ void our_cd(char* path, int* status){ //need status for error number
 }
 
 
-int parse_args(struct Command *commands, const char* command){ //special characters (< > & |) can have not spaces around them, so need to check for those specifically
+int parse_args(struct Command *commands, const char* command, int* num_commands, int* do_piping){ //special characters (< > & |) can have not spaces around them, so need to check for those specifically
 	char *buffer = malloc(COMMANDLINE_MAX);
 	int buffer_index = 0;
 	int new_args_index = 0;
@@ -160,6 +230,7 @@ int parse_args(struct Command *commands, const char* command){ //special charact
 			}
 			if(special_command == '|') //copy buffer into last part of command, setup new command
 			{
+				*do_piping = 1;
 				commands[struct_index].args[new_args_index] = NULL;
 				new_args_index = 0;
 
@@ -209,6 +280,7 @@ int parse_args(struct Command *commands, const char* command){ //special charact
 			}
 		}
 	}
+	*num_commands = struct_index+1;
 	return NO_ERR;
 }
 
@@ -245,81 +317,103 @@ int main(int argc, char *argv[])
 	int status;
 	int pid;
 	struct Command *commands = malloc(10 * sizeof(struct Command)); //assume at most 10 pipes? prob need to realloc in parser every time we see pipe
+	int num_commands; 
+	int do_piping = 0;
+
+
 	while(1)
 	{
+
 		commands[0].args = malloc(17 * sizeof(char*));
 		commands[0].input_file = "";
 		commands[0].output_file = "";
 		fprintf(stdout, "sshell$ ");
 		int length = getline(&cmd, &cmdSize, stdin);
-		if (!isatty(STDIN_FILENO)) {
+		if (!isatty(STDIN_FILENO)) 
+		{
         printf("%s", cmd);
         fflush(stdout);
-    }
+    	}
 		cmd[length-1] = '\0';
-		status = parse_args(commands, cmd);
+		do_piping = 0;
+		status = parse_args(commands, cmd, &num_commands, &do_piping);
 		int error = errorMessage(status);
 		if(error)
 		{
 			continue;
 		}
-		pid = fork();
-		if(pid == 0) //execute command as child
+		if(do_piping)
 		{
-			if(strlen(commands[0].input_file) > 0) //input redirection
+			int *err_codes = malloc(num_commands*sizeof(int));
+			execute_pipe(commands, num_commands, err_codes);
+			fprintf(stderr, "+ completed '%s' ", cmd);
+			printf("%d\n", num_commands);
+			for(int i =0; i < num_commands; i++)
 			{
-				int stat = redirect_input(commands[0].input_file);
-				if(stat == NO_INPUT_FILE)
-				{
-					fprintf(stderr, "Error: cannot open input file\n");
-					continue;
-				}
+				fprintf(stderr, "[%d]", err_codes[i]);
 			}
-			if(strlen(commands[0].output_file) > 0)
-			{
-				int stat = redirect_output(commands[0].output_file);
-				if(stat == NO_OUTPUT_FILE)
-				{
-					fprintf(stderr, "Error: cannot open output file\n");
-					continue;
-				}
-			}
-			if(strcmp(commands[0].args[0], "exit") == 0){ //don't want child to execute these commands
-				exit(0);
-			}
-			else if (strcmp(commands[0].args[0], "pwd") == 0){
-				exit(0);
-			}
-			else if(strcmp(commands[0].args[0], "cd") == 0){
-				exit(0);
-			}
-			status = execvp(commands[0].args[0], commands[0].args);
-			exit(1);
+			fprintf(stderr, "\n");
 		}
-		else if(pid > 0)
-		{
-			waitpid(-1, &status, 0);
-			if(strcmp(commands[0].args[0], "exit") == 0){
-				our_exit();
+		else{
+			pid = fork();
+			if(pid == 0) //execute command as child
+			{
+				if(strlen(commands[0].input_file) > 0) //input redirection
+				{
+					int stat = redirect_input(commands[0].input_file);
+					if(stat == NO_INPUT_FILE)
+					{
+						fprintf(stderr, "Error: cannot open input file\n");
+						continue;
+					}
+				}
+				if(strlen(commands[0].output_file) > 0)
+				{
+					int stat = redirect_output(commands[0].output_file);
+					if(stat == NO_OUTPUT_FILE)
+					{
+						fprintf(stderr, "Error: cannot open output file\n");
+						continue;
+					}
+				}
+				if(strcmp(commands[0].args[0], "exit") == 0){ //don't want child to execute these commands
+					exit(0);
+				}
+				else if (strcmp(commands[0].args[0], "pwd") == 0){
+					exit(0);
+				}
+				else if(strcmp(commands[0].args[0], "cd") == 0){
+					exit(0);
+				}
+				status = execvp(commands[0].args[0], commands[0].args);
+				exit(1);
 			}
-			else if (strcmp(commands[0].args[0], "pwd") == 0){
-				our_pwd();
-				fprintf(stderr, "+ completed '%s' [%d]\n", cmd , 0);
-			}
-			else if(strcmp(commands[0].args[0], "cd") == 0){
-				our_cd(commands[0].args[1], &status);
-				fprintf(stderr, "+ completed '%s' [%d]\n", cmd , status);
+			else if(pid > 0)
+			{
+				waitpid(-1, &status, 0);
+				if(strcmp(commands[0].args[0], "exit") == 0){
+					our_exit();
+				}
+				else if (strcmp(commands[0].args[0], "pwd") == 0){
+					our_pwd();
+					fprintf(stderr, "+ completed '%s' [%d]\n", cmd , 0);
+				}
+				else if(strcmp(commands[0].args[0], "cd") == 0){
+					our_cd(commands[0].args[1], &status);
+					fprintf(stderr, "+ completed '%s' [%d]\n", cmd , status);
+				}
+				else
+				{
+					fprintf(stderr, "+ completed '%s' [%d]\n", cmd , WEXITSTATUS(status));
+				}
 			}
 			else
 			{
-				fprintf(stderr, "+ completed '%s' [%d]\n", cmd , WEXITSTATUS(status));
+				fprintf(stderr, "u gofed\n");
 			}
 		}
-		else
-		{
-			fprintf(stderr, "u gofed\n");
-		}
-	}
+
+	} //while
 
 	return EXIT_SUCCESS;
 }
