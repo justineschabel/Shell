@@ -230,7 +230,6 @@ int parse_args(struct Command *commands, const char* command, int* num_commands,
 			}
 			if(special_command == '|') //copy buffer into last part of command, setup new command
 			{
-
 				*do_piping = 1;
 				commands[struct_index].args[new_args_index] = NULL;
 				new_args_index = 0;
@@ -239,6 +238,17 @@ int parse_args(struct Command *commands, const char* command, int* num_commands,
 				commands[struct_index].args = malloc(17 * sizeof(char*));
 				commands[struct_index].input_file = "";
 				commands[struct_index].output_file = "";
+			}
+			if(special_command == '&')
+			{
+				i++;
+				while(command[i] == ' '){ //eat up all whitespace
+					i++;
+				}
+				if(i < strlen(command))
+				{
+					return MISLOC_AMP;
+				}
 			}
 		}
 		else if(command[i] != ' '){
@@ -303,6 +313,9 @@ int errorMessage(int err)
 		break;
 		case MISLOC_OUTPUT_REDIR:
 		fprintf(stderr, "Error: mislocated output redirection\n");
+		break;
+		case MISLOC_AMP:
+		fprintf(stderr, "Error: mislocated background sign\n");
 		break;
 		default:
 		noErr = 0;
