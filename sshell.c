@@ -13,6 +13,12 @@ struct Command {
 	char* output_file;
 };
 
+struct backgroundCommand {
+	char* cmd;
+	int pid;
+	int runInBack;
+};
+
 enum Errors {
 	NO_ERR,
 	INV_CMDLINE,
@@ -60,6 +66,51 @@ int redirect_output(char* filename){
 	dup2(fd,STDOUT_FILENO);
 	close(fd);
 	return 0;
+}
+
+int checkProcessCompletion(struct backgroundCommand *backgroundCommands, int num_processes, char* cmd, int do_background, int status)
+{
+	if(backgroundCommands[num_processes - 1].pid != -1)
+	{
+		backgroundCommands[num_processes - 1].cmd = malloc(strlen(cmd));
+		memcpy(backgroundCommands[num_processes - 1].cmd, cmd, strlen(cmd));
+		if(do_background)
+		{
+			backgroundCommands[num_processes - 1].runInBack = 1;
+			waitpid(backgroundCommands[num_processes - 1].pid, &status, WNOHANG);
+		}
+		else
+		{
+			backgroundCommands[num_processes - 1].runInBack = 0;
+			waitpid(backgroundCommands[num_processes - 1].pid, &status, 0);
+		}
+	}
+	else
+	{
+		num_processes--;
+	}
+
+	int initialProcesses = num_processes;
+	int ret;
+	for(int i = 0; i < initialProcesses; i++)
+	{
+		if(backgroundCommands[i].runInBack == 1)
+		{
+			ret = waitpid(backgroundCommands[i].pid, &status, WNOHANG);
+		}
+		else
+		{
+			ret = waitpid(backgroundCommands[i].pid, &status, 0);
+		}
+		if(ret != 0)
+		{
+			fprintf(stderr, "+ completed '%s' [%d]\n", backgroundCommands[i].cmd , WEXITSTATUS(status));
+			backgroundCommands[i].cmd = "";
+			backgroundCommands[i].pid = 0;
+			num_processes--;
+		}
+	}
+	return num_processes;
 }
 
 void execute_pipe(struct Command *commands, int num_commands, int* err_codes){
@@ -176,7 +227,7 @@ void our_cd(char* path, int* status){ //need status for error number
 }
 
 
-int parse_args(struct Command *commands, const char* command, int* num_commands, int* do_piping){ //special characters (< > & |) can have not spaces around them, so need to check for those specifically
+int parse_args(struct Command *commands, const char* command, int* num_commands, int* do_piping, int* background){ //special characters (< > & |) can have not spaces around them, so need to check for those specifically
 	char *buffer = malloc(COMMANDLINE_MAX);
 	int buffer_index = 0;
 	int new_args_index = 0;
@@ -249,6 +300,7 @@ int parse_args(struct Command *commands, const char* command, int* num_commands,
 				{
 					return MISLOC_AMP;
 				}
+				*background = 1;
 			}
 		}
 		else if(command[i] != ' '){
@@ -331,9 +383,10 @@ int main(int argc, char *argv[])
 	int status;
 	int pid;
 	struct Command *commands = malloc(10 * sizeof(struct Command)); //assume at most 10 pipes? prob need to realloc in parser every time we see pipe
+	struct backgroundCommand *backgroundCommands = malloc(10 * sizeof(struct backgroundCommand)); //prob need to realloc when new process
 	int num_commands;
+	int num_processes = 0;
 	int do_piping = 0;
-
 	while(1)
 	{
 		commands[0].args = malloc(17 * sizeof(char*));
@@ -346,28 +399,34 @@ int main(int argc, char *argv[])
 			printf("%s", cmd);
 			fflush(stdout);
 		}
+		num_processes++;
 		if(length > 1)
 		{
 			cmd[length-1] = '\0';
 		}
 		else
 		{
+			backgroundCommands[num_processes - 1].pid = -1;
+			num_processes = checkProcessCompletion(backgroundCommands, num_processes, cmd, 0, status);
 			continue;
 		}
 		do_piping = 0;
-		status = parse_args(commands, cmd, &num_commands, &do_piping);
+		int do_background = 0;
+		status = parse_args(commands, cmd, &num_commands, &do_piping, &do_background);
 		int error = errorMessage(status);
 		if(error)
 		{
+			num_processes--;
 			continue;
 		}
 		if(do_piping)
 		{
 			int *err_codes = malloc(num_commands*sizeof(int));
 			execute_pipe(commands, num_commands, err_codes);
-			fprintf(stderr, "+ completed '%s' ", cmd);
-			//printf("%d\n", num_commands);
-			for(int i =0; i < num_commands; i++)
+			backgroundCommands[num_processes - 1].pid = 0;
+			num_processes = checkProcessCompletion(backgroundCommands, num_processes, cmd, do_background, status);
+			fprintf(stderr, "+ completed '%s' ", cmd); //add to checkProcessCompletion to make it work with background pipes
+			for(int i = 0; i < num_commands; i++)
 			{
 				fprintf(stderr, "[%d]", err_codes[i]);
 			}
@@ -410,21 +469,30 @@ int main(int argc, char *argv[])
 		}
 		else if(pid > 0)
 		{
-			waitpid(-1, &status, 0);
 			if(strcmp(commands[0].args[0], "exit") == 0){
+				if(num_processes > 1)
+				{
+					fprintf(stderr, "Error: active jobs still running\n");
+					fprintf(stderr, "+ completed '%s' [%d]\n", cmd , 1);
+					num_processes--;
+					continue;
+				}
 				our_exit();
 			}
 			else if (strcmp(commands[0].args[0], "pwd") == 0){
 				our_pwd();
 				fprintf(stderr, "+ completed '%s' [%d]\n", cmd , 0);
+				num_processes--;
 			}
 			else if(strcmp(commands[0].args[0], "cd") == 0){
 				our_cd(commands[0].args[1], &status);
 				fprintf(stderr, "+ completed '%s' [%d]\n", cmd , status);
+				num_processes--;
 			}
 			else
 			{
-				fprintf(stderr, "+ completed '%s' [%d]\n", cmd , WEXITSTATUS(status));
+				backgroundCommands[num_processes - 1].pid = pid;
+				num_processes = checkProcessCompletion(backgroundCommands, num_processes, cmd, do_background, status);
 			}
 		}
 		else
