@@ -75,8 +75,9 @@ void execute_pipe(struct Command *commands, int num_commands, int* err_codes){
 
 	for(int i = 0; i < num_commands; i++)
 	{
-		fprintf(stderr, "Read: %d Write: %d\n ", fd[i], fd[i+1]);
-		
+
+		fprintf(stderr, "\nCommand %d: %s\n",i, commands[i].args[0]);
+
 
 		int pid = fork();
 		if (pid == 0) 
@@ -202,11 +203,12 @@ int parse_args(struct Command *commands, const char* command, int* num_commands,
 				buffer_index = 0;
 			}
 			char special_command = command[i];
-			i++;
-			while(command[i] == ' '){ //eat up all whitespace
-				i++;
-			}
+
 			if(special_command == '<'){
+				i++;
+				while(command[i] == ' '){ //eat up all whitespace
+			 	i++;
+			 	}
 				char* filename = malloc(COMMANDLINE_MAX);
 				i = get_filename(filename, command, i);
 				i--; //go back one
@@ -218,6 +220,10 @@ int parse_args(struct Command *commands, const char* command, int* num_commands,
 				memcpy(commands[struct_index].input_file, filename, strlen(filename));
 			}
 			if(special_command == '>'){
+				i++;
+				while(command[i] == ' '){ //eat up all whitespace
+			 	i++;
+			 	}
 				char* filename = malloc(COMMANDLINE_MAX);
 				i = get_filename(filename, command, i);
 				i--; //go back one
@@ -230,6 +236,7 @@ int parse_args(struct Command *commands, const char* command, int* num_commands,
 			}
 			if(special_command == '|') //copy buffer into last part of command, setup new command
 			{
+
 				*do_piping = 1;
 				commands[struct_index].args[new_args_index] = NULL;
 				new_args_index = 0;
