@@ -18,6 +18,8 @@ struct Command {
 	char** args;
 	char* input_file;
 	char* output_file;
+
+	struct Command *next;
 };
 
 /*
@@ -30,6 +32,8 @@ struct backgroundCommand {
 	int pipe; //holds number of operations in whole command
 	int* err_codes;
 	int runInBack;
+
+	struct backgroundCommand *next;
 };
 
 /*
@@ -91,6 +95,39 @@ int redirect_output(char* filename){
 	return 0;
 }
 
+void append(struct backgroundCommand *node, struct backgroundCommand *head)
+{
+	struct backgroundCommand *temp = head;
+	if(head == NULL)
+	{
+		head = node;
+	}
+	while(temp->next != NULL)
+	{
+		temp = temp->next;
+	}
+	temp->next = node;
+	node->next = NULL;
+}
+
+void setCurrentCommand(struct backgroundCommand *curr, char* cmd, int do_background)
+{
+	//int status = 0;
+	curr->cmd = malloc(strlen(cmd));
+	memcpy(curr->cmd, cmd, strlen(cmd));
+	if(do_background)
+	{
+		curr->runInBack = 1;
+		//waitpid(curr->pid, &status, WNOHANG);
+	}
+	else
+	{
+		curr->runInBack = 0;
+		//waitpid(curr->pid, &status, 0);
+	}
+	curr->next = NULL;
+}
+
 /*
 Purpose:
 	<Why do we need this function>
@@ -103,9 +140,11 @@ Inputs:
 Source:
 	<Did you find help on a stack overflow post that we should site?>
 */
-int checkProcessCompletion(struct backgroundCommand *backgroundCommands, int num_processes, char* cmd, int do_background, int status)
+int checkProcessCompletion(struct backgroundCommand *backgroundCommands, int num_processes, char* cmd, int do_background)
 {
-	if(backgroundCommands[num_processes - 1].pid != -1)
+	//struct backgroundCommand *newCommand = malloc(sizeof(struct backgroundCommand));
+	//append(newCommand, backgroundCommands);
+	/*if(backgroundCommands[num_processes - 1].pid != -1)
 	{
 		backgroundCommands[num_processes - 1].cmd = malloc(strlen(cmd));
 		memcpy(backgroundCommands[num_processes - 1].cmd, cmd, strlen(cmd));
@@ -123,11 +162,68 @@ int checkProcessCompletion(struct backgroundCommand *backgroundCommands, int num
 	else
 	{
 		num_processes--;
+	}*/
+
+
+	//int initialProcesses = num_processes;
+	int ret;
+	int status = 0;
+	struct backgroundCommand *temp = backgroundCommands;
+	struct backgroundCommand *prev = NULL;
+	while(temp != NULL)
+	{
+		if(temp->cmd == NULL)
+		{
+			prev = temp;
+			temp = temp->next;
+			continue;
+		}
+		if(temp->runInBack == 1)
+		{
+			ret = waitpid(temp->pid, &status, WNOHANG);
+		}
+		else
+		{
+			ret = waitpid(temp->pid, &status, 0);
+		}
+		if(ret != 0)
+		{
+			if(temp->pipe)
+			{
+				fprintf(stderr, "+ completed '%s' ", cmd); //add to checkProcessCompletion to make it work with background pipes
+				for(int i = 0; i < temp->pipe; i++)
+				{
+					fprintf(stderr, "[%d]", temp->err_codes[i]);
+				}
+				fprintf(stderr, "\n");
+			}
+			else
+			{
+				fprintf(stderr, "+ completed '%s' [%d]\n", temp->cmd , WEXITSTATUS(status));
+			}
+			//num_processes--;
+			if(temp->next == NULL)
+			{
+				if(prev != NULL)
+				{
+						prev->next = NULL;
+				}
+			}
+			else
+			{
+				if(prev != NULL)
+				{
+					prev->next = temp->next;
+				}
+			}
+			free(temp);
+		}
+		prev = temp;
+		temp = temp->next;
 	}
 
-	int initialProcesses = num_processes;
-	int ret;
-	for(int i = 0; i < initialProcesses; i++)
+
+	/*for(int i = 0; i < initialProcesses; i++)
 	{
 		if(backgroundCommands[i].runInBack == 1)
 		{
@@ -148,6 +244,7 @@ int checkProcessCompletion(struct backgroundCommand *backgroundCommands, int num
 				}
 				fprintf(stderr, "\n");
 				free(backgroundCommands[i].err_codes);
+				backgroundCommands[i].pipe = 0;
 			}
 			else
 			{
@@ -157,7 +254,7 @@ int checkProcessCompletion(struct backgroundCommand *backgroundCommands, int num
 			backgroundCommands[i].pid = 0;
 			num_processes--;
 		}
-	}
+	}*/
 	return num_processes;
 }
 
@@ -172,7 +269,7 @@ Inputs:
 void execute_pipe(struct Command *commands, int num_commands, int* err_codes){
 	int *fd = malloc(2 * (num_commands - 1) * sizeof(int));
 	int stat = 0;
-
+	struct Command *head = commands;
 	//create all pipes first, one less pipe than number of commands
 	for(int i = 0; i < num_commands - 1; i++)
 	{
@@ -193,9 +290,9 @@ void execute_pipe(struct Command *commands, int num_commands, int* err_codes){
 			else
 			{
 				//First Command might redirect input
-				if(strlen(commands[i].input_file) > 0)
+				if(strlen(commands->input_file) > 0)
 				{
-					stat = redirect_input(commands[i].input_file);
+					stat = redirect_input(commands->input_file);
 					if(stat == NO_INPUT_FILE)
 					{
 						fprintf(stderr, "Error: cannot open input file\n");
@@ -207,9 +304,9 @@ void execute_pipe(struct Command *commands, int num_commands, int* err_codes){
 			if(i == num_commands - 1)
 			{
 				//Last command might redirect output
-				if(strlen(commands[i].output_file) > 0)
+				if(strlen(commands->output_file) > 0)
 				{
-					stat = redirect_output(commands[i].output_file);
+					stat = redirect_output(commands->output_file);
 					if(stat == NO_OUTPUT_FILE)
 					{
 						fprintf(stderr, "Error: cannot open output file\n");
@@ -230,13 +327,14 @@ void execute_pipe(struct Command *commands, int num_commands, int* err_codes){
 			}
 
 			//execute the command - creates entirely new process and should never return
-			stat = execvp(commands[i].args[0], commands[i].args);
+			stat = execvp(commands->args[0], commands->args);
 			if(stat == -1)
 			{
 				fprintf(stderr, "Error: command not found\n");
 				exit(1);
 			}
 		}
+		commands = commands->next;
 	}
 
 	//close all file descriptors
@@ -250,6 +348,7 @@ void execute_pipe(struct Command *commands, int num_commands, int* err_codes){
 		waitpid(-1, &stat, 0);
 		err_codes[i] = WEXITSTATUS(stat);
 	}
+	commands = head;
 }
 
 /*
@@ -337,6 +436,7 @@ int parse_args(struct Command *commands, const char* command, int* num_commands,
 	int buffer_index = 0;
 	int new_args_index = 0;
 	int struct_index = 0;
+	struct Command *head = commands;
 
 	for(int i= 0; i < strlen(command); i++){
 		if(isSpecialChar(command[i]))
@@ -346,8 +446,8 @@ int parse_args(struct Command *commands, const char* command, int* num_commands,
 			}
 			if(buffer_index > 0)
 			{
-				commands[struct_index].args[new_args_index] = malloc(buffer_index);
-				memcpy(commands[struct_index].args[new_args_index], buffer, buffer_index); //copy over buffer first
+				commands->args[new_args_index] = malloc(buffer_index);
+				memcpy(commands->args[new_args_index], buffer, buffer_index); //copy over buffer first
 				memset(buffer, 0, buffer_index);
 				new_args_index ++;
 				buffer_index = 0;
@@ -366,8 +466,8 @@ int parse_args(struct Command *commands, const char* command, int* num_commands,
 				{
 					return NO_INPUT_FILE;
 				}
-				commands[struct_index].input_file = malloc(strlen(filename));
-				memcpy(commands[struct_index].input_file, filename, strlen(filename));
+				commands->input_file = malloc(strlen(filename));
+				memcpy(commands->input_file, filename, strlen(filename));
 			}
 			if(special_command == '>'){
 				i++;
@@ -381,19 +481,23 @@ int parse_args(struct Command *commands, const char* command, int* num_commands,
 				{
 					return NO_OUTPUT_FILE;
 				}
-				commands[struct_index].output_file = malloc(strlen(filename));
-				memcpy(commands[struct_index].output_file, filename, strlen(filename));
+				commands->output_file = malloc(strlen(filename));
+				memcpy(commands->output_file, filename, strlen(filename));
 			}
 			if(special_command == '|') //copy buffer into last part of command, setup new command
 			{
 				*do_piping = 1;
-				commands[struct_index].args[new_args_index] = NULL;
+				commands->args[new_args_index] = NULL;
 				new_args_index = 0;
 
 				struct_index++;
-				commands[struct_index].args = malloc(17 * sizeof(char*));
-				commands[struct_index].input_file = "";
-				commands[struct_index].output_file = "";
+				struct Command *next_command = malloc(sizeof(struct Command));
+				commands->next = next_command;
+				commands = commands->next;
+				commands->args = malloc(17 * sizeof(char*));
+				commands->input_file = "";
+				commands->output_file = "";
+				commands->next = NULL;
 			}
 			if(special_command == '&')
 			{
@@ -427,8 +531,8 @@ int parse_args(struct Command *commands, const char* command, int* num_commands,
 			if(buffer_index > 0)
 			{
 				//fprintf(stderr, "Left over buffer: %s\n", buffer);
-				commands[struct_index].args[new_args_index] = malloc(buffer_index);
-				memcpy(commands[struct_index].args[new_args_index], buffer, buffer_index);
+				commands->args[new_args_index] = malloc(buffer_index);
+				memcpy(commands->args[new_args_index], buffer, buffer_index);
 				memset(buffer, 0, buffer_index);
 				new_args_index ++;
 				buffer_index = 0;
@@ -439,29 +543,32 @@ int parse_args(struct Command *commands, const char* command, int* num_commands,
 	//if the buffer has anything in it, there was a command, add the commands
 	if(buffer_index > 0)
 	{
-		commands[struct_index].args[new_args_index] = malloc(buffer_index);
-		memcpy(commands[struct_index].args[new_args_index], buffer, buffer_index);
+		commands->args[new_args_index] = malloc(buffer_index);
+		memcpy(commands->args[new_args_index], buffer, buffer_index);
 	}
 
 	new_args_index ++;
-	commands[struct_index].args[new_args_index] = NULL;
-
+	commands->args[new_args_index] = NULL;
+	commands = head;
 	//a scruct_index > 0 means theres more than one command i.e. piping. Check for syntax errors.
 	if(struct_index > 0)
 	{
-		for(int i = 0; i <= struct_index; i++)
+		int i = 0;
+		while(head->next != NULL)
 		{
-			if(i > 0 && strlen(commands[i].input_file) > 0)
+			if(i > 0 && strlen(head->input_file) > 0)
 			{
 				return MISLOC_INPUT_REDIR;
 			}
-			if(i < struct_index && strlen(commands[i].output_file) > 0)
+			if(i < struct_index && strlen(head->output_file) > 0)
 			{
 				return MISLOC_OUTPUT_REDIR;
 			}
+			head = head->next;
+			i++;
 		}
 	}
-	*num_commands = struct_index+1;
+	*num_commands = struct_index + 1;
 	return NO_ERR;
 }
 
@@ -509,10 +616,10 @@ int main(int argc, char *argv[])
 	char *cmd = malloc(cmdSize);
 	int status;
 	int pid;
-	//assume at most 10 pipes? prob need to realloc in parser every time we see pipe
-	struct Command *commands = malloc(10 * sizeof(struct Command));
+	//assume at most 10 pipes? prob need to realloc in parser every time we see pipe CHANGED TO LINKED LIST
+	struct Command *commands = malloc(sizeof(struct Command));
 	//probably need to realloc when new process
-	struct backgroundCommand *backgroundCommands = malloc(10 * sizeof(struct backgroundCommand));
+	struct backgroundCommand *backgroundCommands = malloc(sizeof(struct backgroundCommand));
 	int num_commands;
 	int num_processes = 0;
 	int do_background = 0;
@@ -522,9 +629,19 @@ int main(int argc, char *argv[])
 	//Until the user exits, continue accepting input and throw errors if its invalid
 	while(1)
 	{
-		commands[0].args = malloc(17 * sizeof(char*));
-		commands[0].input_file = "";
-		commands[0].output_file = "";
+		/*while(commands->next != NULL)
+		{
+			struct Command *temp = commands->next;
+			if(temp->next != NULL)
+			{
+				commands->next = temp->next;
+			}
+			free(temp);
+		}*/
+		commands->args = malloc(17 * sizeof(char*));
+		commands->input_file = "";
+		commands->output_file = "";
+		commands->next = NULL;
 		fprintf(stdout, "sshell$ ");
 		int length = getline(&cmd, &cmdSize, stdin);
 		//reference from tester
@@ -540,8 +657,8 @@ int main(int argc, char *argv[])
 		}
 		else
 		{
-			backgroundCommands[num_processes - 1].pid = -1;
-			num_processes = checkProcessCompletion(backgroundCommands, num_processes, cmd, 0, status);
+			//backgroundCommands[num_processes - 1].pid = -1;
+			num_processes = checkProcessCompletion(backgroundCommands, num_processes, cmd, 0);
 			continue;
 		}
 		do_piping = 0;
@@ -560,45 +677,59 @@ int main(int argc, char *argv[])
 		{
 			int *err_codes = malloc(num_commands*sizeof(int));
 			execute_pipe(commands, num_commands, err_codes);
-			backgroundCommands[num_processes - 1].pid = 0;
-			backgroundCommands[num_processes - 1].pipe = num_commands;
-			backgroundCommands[num_processes - 1].err_codes = malloc(num_commands * sizeof(int));
-			memcpy(backgroundCommands[num_processes - 1].err_codes, err_codes, num_commands);
-			num_processes = checkProcessCompletion(backgroundCommands, num_processes, cmd, do_background, status);
+			struct backgroundCommand *nextNode = malloc(sizeof(struct backgroundCommand));
+			nextNode->pid = 0;
+			nextNode->pipe = num_commands;
+			nextNode->err_codes = malloc(num_commands * sizeof(int));
+			for(int i = 0; i < num_commands; i++)
+			{
+				printf("%d ", err_codes[i]);
+			}
+			//backgroundCommands[num_processes - 1].pid = 0;
+			//backgroundCommands[num_processes - 1].pipe = num_commands;
+			//backgroundCommands[num_processes - 1].err_codes = malloc(num_commands * sizeof(int));
+			memcpy(nextNode->err_codes, err_codes, num_commands);
+			for(int i = 0; i < num_commands; i++)
+			{
+				printf("%d ", nextNode->err_codes[i]);
+			}
+			append(nextNode, backgroundCommands);
+			setCurrentCommand(nextNode, cmd, do_background);
+			num_processes = checkProcessCompletion(backgroundCommands, num_processes, cmd, do_background);
 		}
 		else
 		{
 			pid = fork();
 			if(pid == 0) //execute command as child
 			{
-				if(strlen(commands[0].input_file) > 0) //input redirection
+				if(strlen(commands->input_file) > 0) //input redirection
 				{
-					int stat = redirect_input(commands[0].input_file);
+					int stat = redirect_input(commands->input_file);
 					if(stat == CANT_OPN_INPUT_FILE)
 					{
 						fprintf(stderr, "Error: cannot open input file\n");
 						continue;
 					}
 				}
-				if(strlen(commands[0].output_file) > 0)
+				if(strlen(commands->output_file) > 0)
 				{
-					int stat = redirect_output(commands[0].output_file);
+					int stat = redirect_output(commands->output_file);
 					if(stat == CANT_OPN_OUTPUT_FILE)
 					{
 						fprintf(stderr, "Error: cannot open output file\n");
 						continue;
 					}
 				}
-				if(strcmp(commands[0].args[0], "exit") == 0){ //don't want child to execute these commands
+				if(strcmp(commands->args[0], "exit") == 0){ //don't want child to execute these commands
 				exit(0);
 			}
-			else if (strcmp(commands[0].args[0], "pwd") == 0){
+			else if (strcmp(commands->args[0], "pwd") == 0){
 				exit(0);
 			}
-			else if(strcmp(commands[0].args[0], "cd") == 0){
+			else if(strcmp(commands->args[0], "cd") == 0){
 				exit(0);
 			}
-			status = execvp(commands[0].args[0], commands[0].args);
+			status = execvp(commands->args[0], commands->args);
 			if(status == -1)
 			{
 				fprintf(stderr, "Error: command not found\n");
@@ -607,30 +738,49 @@ int main(int argc, char *argv[])
 		}
 		else if(pid > 0)
 		{
-			if(strcmp(commands[0].args[0], "exit") == 0){
-				if(num_processes > 1)
+			if(strcmp(commands->args[0], "exit") == 0){
+				struct backgroundCommand *temp = backgroundCommands;
+				int exitErr = 0;
+				while(temp->next != NULL)
+				{
+					if(temp->cmd != NULL)
+					{
+						fprintf(stderr, "Error: active jobs still running\n");
+						fprintf(stderr, "+ completed '%s' [%d]\n", cmd , 1);
+						exitErr = 1;
+					}
+					temp = temp->next;
+				}
+				/*if(num_processes > 1)
 				{
 					fprintf(stderr, "Error: active jobs still running\n");
 					fprintf(stderr, "+ completed '%s' [%d]\n", cmd , 1);
 					num_processes--;
 					continue;
+				}*/
+				if(!exitErr)
+				{
+						our_exit();
 				}
-				our_exit();
 			}
-			else if (strcmp(commands[0].args[0], "pwd") == 0){
+			else if (strcmp(commands->args[0], "pwd") == 0){
 				our_pwd();
 				fprintf(stderr, "+ completed '%s' [%d]\n", cmd , 0);
 				num_processes--;
 			}
-			else if(strcmp(commands[0].args[0], "cd") == 0){
-				our_cd(commands[0].args[1], &status);
+			else if(strcmp(commands->args[0], "cd") == 0){
+				our_cd(commands->args[1], &status);
 				fprintf(stderr, "+ completed '%s' [%d]\n", cmd , status);
 				num_processes--;
 			}
 			else
 			{
-				backgroundCommands[num_processes - 1].pid = pid;
-				num_processes = checkProcessCompletion(backgroundCommands, num_processes, cmd, do_background, status);
+				struct backgroundCommand *nextNode = malloc(sizeof(struct backgroundCommand));
+				nextNode->pid = pid;
+				nextNode->pipe = 0;
+				append(nextNode, backgroundCommands);
+				setCurrentCommand(nextNode, cmd, do_background);
+				num_processes = checkProcessCompletion(backgroundCommands, num_processes, cmd, do_background);
 			}
 		}
 		else
