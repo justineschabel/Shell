@@ -6,19 +6,36 @@
 #include <fcntl.h>
 #define COMMANDLINE_MAX 512
 
-
+/*
+Purpose:
+	organize commands/store information
+Elements:
+	@args: a character array that stores the command and its arguments
+	@input_file: if theres input redirection this is set to the file name
+	@output_file: if theres output redirection this is set to the file name
+*/
 struct Command {
 	char** args;
 	char* input_file;
 	char* output_file;
 };
 
+/*
+Purpose:
+	We used a separate struct for the background command because <ENTER REASON/SOURCE>
+*/
 struct backgroundCommand {
 	char* cmd;
 	int pid;
 	int runInBack;
 };
 
+/*
+Purpose:
+	Enumerating errors allows for readability and organization
+Source: 
+	Coding tips from lecture
+*/
 enum Errors {
 	NO_ERR,
 	INV_CMDLINE,
@@ -35,10 +52,12 @@ enum Errors {
 };
 
 /**
-purpose:
-use file input for command
-inputs:
-@filename: command line file name to be used as input
+Purpose:
+	use file input for command
+Inputs:
+	@filename: command line file name to be used as input
+Source:
+	Semi adapted from lecture slides
 **/
 int redirect_input(char* filename){
 	int fd = open(filename, O_RDONLY);
@@ -52,10 +71,12 @@ int redirect_input(char* filename){
 }
 
 /**
-purpose:
-use file output for command
-inputs:
-@filename: command line file name to be used as output
+Purpose:
+	send output of command to another file
+Inputs:
+	@filename: command line file name to be used as output
+Source:
+	Semi adapted from lecture slides
 **/
 int redirect_output(char* filename){
 	int fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
@@ -68,6 +89,18 @@ int redirect_output(char* filename){
 	return 0;
 }
 
+/*
+Purpose:
+	<Why do we need this function>
+Inputs: 
+	@background_commmands: array of commands that need to be ran
+	@num_processes: length of background_commands array
+	@cmd:
+	@do_background:
+	@status:
+Source:
+	<Did you find help on a stack overflow post that we should site?>
+*/
 int checkProcessCompletion(struct backgroundCommand *backgroundCommands, int num_processes, char* cmd, int do_background, int status)
 {
 	if(backgroundCommands[num_processes - 1].pid != -1)
@@ -113,27 +146,39 @@ int checkProcessCompletion(struct backgroundCommand *backgroundCommands, int num
 	return num_processes;
 }
 
+/*
+Purpose:
+	if there are any pipes, this function handles them one at a time
+Inputs:
+	@commands: array of commands, each one separated by a pipe
+	@num_commands: length of commands array
+	@error_codes: keeps track of each commands error code (so main can print them out after all are done)
+*/
 void execute_pipe(struct Command *commands, int num_commands, int* err_codes){
 	int *fd = malloc(2 * (num_commands - 1) * sizeof(int));
 	int stat = 0;
-	for(int i = 0; i < num_commands - 1; i++) //create all pipes first, one less pipe than number of commands
+
+	//create all pipes first, one less pipe than number of commands
+	for(int i = 0; i < num_commands - 1; i++) 
 	{
 		pipe(fd + i * 2);
 	}
 
-
+	//loop through all commands, connect them by channeling their I/O, and execute
 	for(int i = 0; i < num_commands; i++)
 	{
 		int pid = fork();
 		if (pid == 0)
 		{
-			if(i != 0) //Not first command, redirect output
+			//Not the first command, redirect input
+			if(i != 0) 
 			{
 				dup2(fd[2 * (i - 1)], STDIN_FILENO);
 			}
-			else //First Command might redirect input
+			else 
 			{
-				if(strlen(commands[i].input_file) > 0) //input redirection
+				//First Command might redirect input
+				if(strlen(commands[i].input_file) > 0) 
 				{
 					stat = redirect_input(commands[i].input_file);
 					if(stat == NO_INPUT_FILE)
@@ -145,7 +190,8 @@ void execute_pipe(struct Command *commands, int num_commands, int* err_codes){
 			}
 
 			if(i == num_commands - 1)
-			{ //Last command might redirect output
+			{ 
+				//Last command might redirect output
 				if(strlen(commands[i].output_file) > 0)
 				{
 					stat = redirect_output(commands[i].output_file);
@@ -156,34 +202,55 @@ void execute_pipe(struct Command *commands, int num_commands, int* err_codes){
 					}
 				}
 			}
+
+			//if its not the last command, redirect output
 			else
 			{
 				dup2(fd[1 + 2 * i], STDOUT_FILENO);
 			}
+
+			//close all file descriptors 
 			for(int i = 0; i < (num_commands - 1) * 2; i++){
 				close(fd[i]);
 			}
+
+			//execute the command - creates entirely new process and should never return
 			stat = execvp(commands[i].args[0], commands[i].args);
 		}
-	} //for
+	} 
+
+	//close all file descriptors 
 	for(int i = 0; i < (num_commands - 1) * 2; i++){
 		close(fd[i]);
 	}
 
-	for(int i = 0; i < num_commands; i++) //wait for children to execute and collect error codes
+	//wait for children to execute and collect error codes
+	for(int i = 0; i < num_commands; i++) 
 	{
 		waitpid(-1, &stat, 0);
 		err_codes[i] = WEXITSTATUS(stat);
 	}
-} //function
+}
 
-
+/*
+Purpose:
+	if theres a valid special character we need to call specialized functions
+*/
 int isSpecialChar(char toCheck)
 {
 	return toCheck == '&' || toCheck == '|' || toCheck == '>' || toCheck == '<';
 }
 
-
+/*
+Purpose:
+	after reading < or > we need to parse the filename
+Inputs:
+	@filename: char* so we can access the filename when we return
+	@command: We need to parse the file name out of the original command line
+	@starting index: We need to start from right after the < or >
+Outputs:
+	@command_index: We need to finish parsing from the index immediately after the filename
+*/
 int get_filename(char* filename, const char* command, int starting_index){
 	int filename_index = 0;
 	int command_index = starting_index;
@@ -207,12 +274,21 @@ void our_pwd(){
 	fprintf(stdout, "%s\n" , getcwd(NULL, 0));
 }
 
-
-void our_cd(char* path, int* status){ //need status for error number
+/*
+Purpose:
+	execute cd command
+Inputs:
+	@path: path entered in command line
+	@status: blank pointer, used to return exit status of cd
+Source:
+	<ENTER SOURCE>
+*/
+void our_cd(char* path, int* status){ 
+	//special case, where the path wasnt explicitly given
 	if(strcmp(path, "..") == 0){
 		char* current_path = getcwd(NULL, 0);
-		char* lastSlash = strrchr(current_path, '/'); //finds index of last slash
-		free(path);
+		char* lastSlash = strrchr(current_path, '/'); 
+		free(path);												
 		path = malloc(lastSlash - current_path + 1);
 		memcpy(path, current_path, lastSlash - current_path + 1);
 
@@ -226,7 +302,16 @@ void our_cd(char* path, int* status){ //need status for error number
 	return;
 }
 
-
+/*
+Purpose: 
+	parse the command line
+Inputs:
+	@commands: empty array of command objects that the main function can access after parsing
+	@command: first command
+	@num_commands: return number of commands (length of commands array)
+	@do_piping: Let main know there is piping so it can be handled properly
+	@background: Let main know this command needs to be a background process
+*/
 int parse_args(struct Command *commands, const char* command, int* num_commands, int* do_piping, int* background){ //special characters (< > & |) can have not spaces around them, so need to check for those specifically
 	char *buffer = malloc(COMMANDLINE_MAX);
 	int buffer_index = 0;
@@ -302,18 +387,26 @@ int parse_args(struct Command *commands, const char* command, int* num_commands,
 				}
 				*background = 1;
 			}
-		}
+		} //end special character check
+
+		// otherwise add character to buffer
 		else if(command[i] != ' '){
 			buffer[buffer_index] = command[i];
 			buffer_index++;
 		}
-		else{ //whitespace
-			while(command[i] == ' '){ //eat up all whitespace
+
+		//eat up whitespace
+		else{ 
+			while(command[i] == ' '){ 
 				i++;
 			}
-			i--; //go back one since for loop increments
+			//go back one since for loop increments
+			i--; 
+
+			//buffer left over <EXPLANATION>
 			if(buffer_index > 0)
 			{
+				fprintf(stderr, "Left over buffer: %s\n", buffer);
 				commands[struct_index].args[new_args_index] = malloc(buffer_index);
 				memcpy(commands[struct_index].args[new_args_index], buffer, buffer_index);
 				memset(buffer, 0, buffer_index);
@@ -321,15 +414,20 @@ int parse_args(struct Command *commands, const char* command, int* num_commands,
 				buffer_index = 0;
 			}
 		}
-	}
-	if(buffer_index > 0) //leftover in buffer
+	} //end for loop through the command line input
+
+	//if the buffer has anything in it, there was a command, add the commands
+	if(buffer_index > 0) 
 	{
 		commands[struct_index].args[new_args_index] = malloc(buffer_index);
 		memcpy(commands[struct_index].args[new_args_index], buffer, buffer_index);
 	}
+
 	new_args_index ++;
 	commands[struct_index].args[new_args_index] = NULL;
-	if(struct_index > 0) //piping
+
+	//a scruct_index > 0 means theres more than one command i.e. piping. Check for syntax errors.
+	if(struct_index > 0) 
 	{
 		for(int i = 0; i <= struct_index; i++)
 		{
@@ -347,9 +445,18 @@ int parse_args(struct Command *commands, const char* command, int* num_commands,
 	return NO_ERR;
 }
 
+/*
+Purpose:
+	Handle all error output
+Input:
+	@err: Error Number (calculated using enum Errors)
+Source:
+	<Did you reference anything for this?>
+*/
 int errorMessage(int err)
 {
-	int noErr = 1; //assume error
+	//assume error
+	int noErr = 1; 
 	switch (err) {
 		case INV_CMDLINE:
 		fprintf(stderr, "Error: invalid command line\n");
@@ -382,11 +489,17 @@ int main(int argc, char *argv[])
 	char *cmd = malloc(cmdSize);
 	int status;
 	int pid;
-	struct Command *commands = malloc(10 * sizeof(struct Command)); //assume at most 10 pipes? prob need to realloc in parser every time we see pipe
-	struct backgroundCommand *backgroundCommands = malloc(10 * sizeof(struct backgroundCommand)); //prob need to realloc when new process
+	//assume at most 10 pipes? prob need to realloc in parser every time we see pipe
+	struct Command *commands = malloc(10 * sizeof(struct Command)); 
+	//probably need to realloc when new process
+	struct backgroundCommand *backgroundCommands = malloc(10 * sizeof(struct backgroundCommand)); 
 	int num_commands;
 	int num_processes = 0;
+	int do_background = 0;
+
 	int do_piping = 0;
+
+	//Until the user exits, continue accepting input and throw errors if its invalid
 	while(1)
 	{
 		commands[0].args = malloc(17 * sizeof(char*));
@@ -394,6 +507,7 @@ int main(int argc, char *argv[])
 		commands[0].output_file = "";
 		fprintf(stdout, "sshell$ ");
 		int length = getline(&cmd, &cmdSize, stdin);
+		//reference from lecture slide
 		if (!isatty(STDIN_FILENO))
 		{
 			printf("%s", cmd);
@@ -411,7 +525,10 @@ int main(int argc, char *argv[])
 			continue;
 		}
 		do_piping = 0;
-		int do_background = 0;
+
+		//Does this need to be declared and set here or should it be declared outside loop and reset? 
+		// int do_background = 0;
+		do_background = 0;
 		status = parse_args(commands, cmd, &num_commands, &do_piping, &do_background);
 		int error = errorMessage(status);
 		if(error)

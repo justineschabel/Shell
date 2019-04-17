@@ -1,0 +1,47 @@
+---
+title: "Shell"
+author: "Rohit and Justine"
+date: "4/18/2019"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+##Data Structures Used:
+Structs: 
+
+	We created a Command struct to store data on each command
+	
+Arrays: 
+
+	Rather than implementing a formal queue, we used arrays and treated them like queues. Specifically, we used arrays of Command objects, inserted them in the order parsed, and executed them in that order
+	
+##Code design overview
+From main, the command line input is parsed and a command object array is created. 
+We also ensure to check for basic invalid syntax and exclude whitespace while parsing.
+	
+Right away, if there is input or output redirection, a separate function reads in the file name and we set the input or output filename of the command object. In order to do this, we needed to keep track of where we were in the parsing and where we needed to return to after extracting the filename. We did this just by creating pointers and passing by reference.
+
+If there is piping character we malloc more space for the following command. 
+
+If the special character is & <INSERT explanation>
+
+Otherwise we store the rest of the command pieces character by character (in a buffer), and when we run into special characters or white space, we add the entirety of the buffer to the list of arguments.
+
+After parsing the commandline, we check if we are piping or not. Piping is handled differently than all other commands, because we need to create and manage the pipes. 
+
+For piping we essentially followed the professors example code in class. The first and last command are special due to potentially dealing with input or output redirection. Otherwise, we change the file descriptors, close all the pipes created and execute the command. 
+
+If no piping needs to occur, the child process handles basic input/output redirection (adapted from lecture examples) and executes most commands.
+
+There are specific commands the parent process executes and thats basic ones such as pwd, exit and cd. We implemented these in small functions that make basic sys calls. Other than those commands, the parent just waits for the child to complete and prints out the completion message + error codes.
+
+##Error handling
+Error checking typically occurs at the beginning of a function and we used an enum with a dedicated error function to print out error messages. We followed the examples presented in discussion.  
+
+
+
+
