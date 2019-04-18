@@ -8,13 +8,13 @@
 
 /*
 Purpose:
-	organize commands/store information
+organize commands/store information
 Elements:
-	@args: a character array that stores the command and its arguments
-	@input_file: if theres input redirection this is set to the file name
-	@output_file: if theres output redirection this is set to the file name
+@args: a character array that stores the command and its arguments
+@input_file: if theres input redirection this is set to the file name
+@output_file: if theres output redirection this is set to the file name
 Source:
-	None
+None
 */
 struct Command {
 	char** args;
@@ -26,12 +26,12 @@ struct Command {
 
 /*
 Purpose:
-	We used a separate struct for the background command because we need to keep
-	an array of the commands running in the background, and the order the
-	commands were entered and we want to store more information than we would
-	for a normal command (such as pid)
+We used a separate struct for the background command because we need to keep
+an array of the commands running in the background, and the order the
+commands were entered and we want to store more information than we would
+for a normal command (such as pid)
 Source:
-	None
+None
 */
 struct backgroundCommand {
 	char* cmd;
@@ -46,9 +46,9 @@ struct backgroundCommand {
 
 /*
 Purpose:
-	Enumerating errors allows for readability and organization
+Enumerating errors allows for readability and organization
 Source:
-	Coding tips from lecture
+Coding tips from lecture
 */
 enum Errors {
 	NO_ERR,
@@ -67,12 +67,12 @@ enum Errors {
 
 /**
 Purpose:
-	use file input for command
+use file input for command
 Inputs:
-	@filename: command line file name to be used as input
+@filename: command line file name to be used as input
 Source:
-	Adapted from lecture slides
-**/
+Adapted from lecture slides
+ **/
 int redirect_input(char* filename){
 	int fd = open(filename, O_RDONLY);
 	if(fd == -1)
@@ -86,12 +86,12 @@ int redirect_input(char* filename){
 
 /**
 Purpose:
-	send output of command to another file
+send output of command to another file
 Inputs:
-	@filename: command line file name to be used as output
+@filename: command line file name to be used as output
 Source:
-	Adapted from lecture slides
-**/
+Adapted from lecture slides
+ **/
 int redirect_output(char* filename){
 	int fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
 	if(fd == -1)
@@ -105,12 +105,12 @@ int redirect_output(char* filename){
 
 /*
 Purpose:
-	Append a background command to the linked list of commmands
+Append a background command to the linked list of commmands
 Inputs:
-	@node: node to add to the linked list
-	@head: the beginning of the linked list
+@node: node to add to the linked list
+@head: the beginning of the linked list
 Source:
-	None
+None
 */
 void append(struct backgroundCommand *node, struct backgroundCommand *head)
 {
@@ -129,14 +129,14 @@ void append(struct backgroundCommand *node, struct backgroundCommand *head)
 
 /*
 Purpose:
-	Second function for adding to background job linked list,
-	sets the user entered command and if it needs to be run in the background
+Second function for adding to background job linked list,
+sets the user entered command and if it needs to be run in the background
 Inputs:
-	@curr: current command
-	@cmd: user entered command
-	@do_background: 1 if there is &
+@curr: current command
+@cmd: user entered command
+@do_background: 1 if there is &
 Source:
-	None
+None
 */
 void setCurrentCommand(struct backgroundCommand *curr, char* cmd, int do_background)
 {
@@ -155,12 +155,12 @@ void setCurrentCommand(struct backgroundCommand *curr, char* cmd, int do_backgro
 
 /*
 Purpose:
-	Print out command after completion
+Print out command after completion
 Inputs:
-	@command: current completed command to print
-	@status: exit status of command
+@command: current completed command to print
+@status: exit status of command
 Source:
-	None
+None
 */
 void printCommandCompletion(struct backgroundCommand *command, char* cmd, int status)
 {
@@ -189,15 +189,15 @@ void printCommandCompletion(struct backgroundCommand *command, char* cmd, int st
 
 /*
 Purpose:
-	If a current process or a process in the background completes,
-	we need to rearrange the linked	list
+If a current process or a process in the background completes,
+we need to rearrange the linked	list
 Inputs:
-	@background_commmands: array of commands that need to be ran/are running
-	@num_processes: length of background_commands array
-	@cmd: the user entered command
-	@do_background: if last executed command was to be done in the background
+@background_commmands: array of commands that need to be ran/are running
+@num_processes: length of background_commands array
+@cmd: the user entered command
+@do_background: if last executed command was to be done in the background
 Source:
-	None
+None
 */
 int checkProcessCompletion(struct backgroundCommand *backgroundCommands, int num_processes, char* cmd, int do_background)
 {
@@ -228,7 +228,7 @@ int checkProcessCompletion(struct backgroundCommand *backgroundCommands, int num
 			{
 				if(prev != NULL) //not first command in linked list
 				{
-						prev->next = NULL;
+					prev->next = NULL;
 				}
 			}
 			else
@@ -249,15 +249,15 @@ int checkProcessCompletion(struct backgroundCommand *backgroundCommands, int num
 
 /*
 Purpose:
-	if there are any pipes, this function handles them one at a time
+if there are any pipes, this function handles them one at a time
 Inputs:
-	@commands: array of commands, each one separated by a pipe
-	@num_commands: length of commands array
-	@error_codes: keeps track of each commands error code (so main can print
-	them out after all are done)
+@commands: array of commands, each one separated by a pipe
+@num_commands: length of commands array
+@error_codes: keeps track of each commands error code (so main can print
+them out after all are done)
 Source:
-	Piazza Post 121 + in comments Professor mentioned you could essentially
-	do a loop through all the commands
+Piazza Post 121 + in comments Professor mentioned you could essentially
+do a loop through all the commands
 */
 void execute_pipe(struct Command *commands, int num_commands, int* err_codes)
 {
@@ -348,18 +348,18 @@ void execute_pipe(struct Command *commands, int num_commands, int* err_codes)
 
 /*
 Purpose:
-	sets up data structures and executes a piped command
+sets up data structures and executes a piped command
 Inputs:
-	@commands: linked list of commands in pipe
-	@num_commands: number of piped commands
-	@num_processes: number of processes in backgroundCommands
-	@backgroundCommands: linked list of current processes
-	@cmd: user entered cmd
-	@do_background: 1 if current command executes in background
+@commands: linked list of commands in pipe
+@num_commands: number of piped commands
+@num_processes: number of processes in backgroundCommands
+@backgroundCommands: linked list of current processes
+@cmd: user entered cmd
+@do_background: 1 if current command executes in background
 Outputs:
-	1 if special character, 0 otherwise
+1 if special character, 0 otherwise
 Source:
-	None
+None
 */
 void our_pipe(struct Command *commands, int num_commands, int *num_processes, struct backgroundCommand *backgroundCommands, char* cmd, int do_background)
 {
@@ -380,13 +380,13 @@ void our_pipe(struct Command *commands, int num_commands, int *num_processes, st
 
 /*
 Purpose:
-	if theres a valid special character we need to call specialized functions
+if theres a valid special character we need to call specialized functions
 Inputs:
-	@toCheck: char to check
+@toCheck: char to check
 Outputs:
-	1 if special character, 0 otherwise
+1 if special character, 0 otherwise
 Source:
-	None
+None
 */
 int isSpecialChar(char toCheck)
 {
@@ -395,18 +395,18 @@ int isSpecialChar(char toCheck)
 
 /*
 Purpose:
-	after reading < or > we need to parse the filename starting from where we
-	left off in the command line
+after reading < or > we need to parse the filename starting from where we
+left off in the command line
 Inputs:
-	@filename: char* where filename is stored, so
-	we can access the filename when we return
-	@command: We need to parse the file name out of the original command line
-	@starting index: We need to start from right after the < or >
+@filename: char* where filename is stored, so
+we can access the filename when we return
+@command: We need to parse the file name out of the original command line
+@starting index: We need to start from right after the < or >
 Outputs:
-	@command_index: We need to finish parsing from the index immediately
-	after the filename
+@command_index: We need to finish parsing from the index immediately
+after the filename
 Source:
-	None
+None
 */
 int get_filename(char* filename, const char* command, int starting_index)
 {
@@ -436,12 +436,12 @@ void our_pwd()
 
 /*
 Purpose:
-	execute cd command
+execute cd command
 Inputs:
-	@path: path entered in command line
-	@status: blank pointer, used to return exit status of cd
+@path: path entered in command line
+@status: blank pointer, used to return exit status of cd
 Source:
-	None (provided documentaton from the prompt)
+None (provided documentaton from the prompt)
 */
 void our_cd(char* path, int* status)
 {
@@ -464,15 +464,15 @@ void our_cd(char* path, int* status)
 
 /*
 Purpose:
-	Parse the command line
+Parse the command line
 Inputs:
-	@special_command: current character in parser
-	@i: index of command line
-	@command: user entered command line
-	@commands: empty array of command objects that the main function can access
-	after parsing
+@special_command: current character in parser
+@i: index of command line
+@command: user entered command line
+@commands: empty array of command objects that the main function can access
+after parsing
 Source:
-	None
+None
 */
 int redirectionParsing(char special_command, int* i, const char* command, struct Command *commands)
 {
@@ -513,16 +513,16 @@ int redirectionParsing(char special_command, int* i, const char* command, struct
 
 /*
 Purpose:
-	Parse the command line
+Parse the command line
 Inputs:
-	@commands: empty array of command objects that the main function can access
-	after parsing
-	@command: first command
-	@num_commands: return number of commands when piping
-	@do_piping: Let main know there is piping so it can be handled properly
-	@background: Let main know this command needs to be a background process
+@commands: empty array of command objects that the main function can access
+after parsing
+@command: first command
+@num_commands: return number of commands when piping
+@do_piping: Let main know there is piping so it can be handled properly
+@background: Let main know this command needs to be a background process
 Source:
-	None
+None
 */
 int parse_args(struct Command *commands, const char* command, int* num_commands, int* do_piping, int* background)
 {
@@ -637,11 +637,11 @@ int parse_args(struct Command *commands, const char* command, int* num_commands,
 
 /*
 Purpose:
-	child should not execute these built in commands
+child should not execute these built in commands
 Input:
-	@commands: linked list of command objects from command line
+@commands: linked list of command objects from command line
 Source:
-	none
+none
 */
 void checkParentCommands(struct Command *commands)
 {
@@ -660,11 +660,11 @@ void checkParentCommands(struct Command *commands)
 
 /*
 Purpose:
-	Handle all error output
+Handle all error output
 Input:
-	@err: Error Number (calculated using enum Errors)
+@err: Error Number (calculated using enum Errors)
 Source:
-	adapted from slides
+adapted from slides
 */
 int errorMessage(int err)
 {
