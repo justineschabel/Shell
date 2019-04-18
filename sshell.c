@@ -31,6 +31,7 @@ struct backgroundCommand {
 	int pid;
 	int pipe; //holds number of operations in whole command
 	int* err_codes;
+	int errStat;
 	int runInBack;
 
 	struct backgroundCommand *next;
@@ -199,7 +200,14 @@ int checkProcessCompletion(struct backgroundCommand *backgroundCommands, int num
 			}
 			else
 			{
-				fprintf(stderr, "+ completed '%s' [%d]\n", temp->cmd , WEXITSTATUS(status));
+				if(temp->errStat)
+				{
+					fprintf(stderr, "+ completed '%s' [%d]\n", temp->cmd , temp->errStat);
+				}
+				else
+				{
+					fprintf(stderr, "+ completed '%s' [%d]\n", temp->cmd , WEXITSTATUS(status));
+				}
 			}
 			//num_processes--;
 			if(temp->next == NULL)
@@ -554,7 +562,7 @@ int parse_args(struct Command *commands, const char* command, int* num_commands,
 	if(struct_index > 0)
 	{
 		int i = 0;
-		while(head->next != NULL)
+		while(head != NULL)
 		{
 			if(i > 0 && strlen(head->input_file) > 0)
 			{
@@ -681,17 +689,14 @@ int main(int argc, char *argv[])
 			nextNode->pid = 0;
 			nextNode->pipe = num_commands;
 			nextNode->err_codes = malloc(num_commands * sizeof(int));
-			for(int i = 0; i < num_commands; i++)
-			{
-				printf("%d ", err_codes[i]);
-			}
+
 			//backgroundCommands[num_processes - 1].pid = 0;
 			//backgroundCommands[num_processes - 1].pipe = num_commands;
 			//backgroundCommands[num_processes - 1].err_codes = malloc(num_commands * sizeof(int));
-			memcpy(nextNode->err_codes, err_codes, num_commands);
+			//memcpy(nextNode->err_codes, err_codes, num_commands);
 			for(int i = 0; i < num_commands; i++)
 			{
-				printf("%d ", nextNode->err_codes[i]);
+				nextNode->err_codes[i] = err_codes[i];
 			}
 			append(nextNode, backgroundCommands);
 			setCurrentCommand(nextNode, cmd, do_background);
@@ -741,7 +746,7 @@ int main(int argc, char *argv[])
 			if(strcmp(commands->args[0], "exit") == 0){
 				struct backgroundCommand *temp = backgroundCommands;
 				int exitErr = 0;
-				while(temp->next != NULL)
+				while(temp != NULL)
 				{
 					if(temp->cmd != NULL)
 					{
@@ -775,9 +780,19 @@ int main(int argc, char *argv[])
 			}
 			else
 			{
+				if(!do_background)
+				{
+					waitpid(pid, &status, 0);
+				}
+				//printf("%d", WEXITSTATUS(status));
+
 				struct backgroundCommand *nextNode = malloc(sizeof(struct backgroundCommand));
 				nextNode->pid = pid;
 				nextNode->pipe = 0;
+				if(WEXITSTATUS(status) > 0)
+				{
+					nextNode->errStat = WEXITSTATUS(status);
+				}
 				append(nextNode, backgroundCommands);
 				setCurrentCommand(nextNode, cmd, do_background);
 				num_processes = checkProcessCompletion(backgroundCommands, num_processes, cmd, do_background);
