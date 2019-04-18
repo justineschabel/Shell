@@ -348,6 +348,38 @@ void execute_pipe(struct Command *commands, int num_commands, int* err_codes)
 
 /*
 Purpose:
+	sets up data structures and executes a piped command
+Inputs:
+	@commands: linked list of commands in pipe
+	@num_commands: number of piped commands
+	@num_processes: number of processes in backgroundCommands
+	@backgroundCommands: linked list of current processes
+	@cmd: user entered cmd
+	@do_background: 1 if current command executes in background
+Outputs:
+	1 if special character, 0 otherwise
+Source:
+	None
+*/
+void our_pipe(struct Command *commands, int num_commands, int *num_processes, struct backgroundCommand *backgroundCommands, char* cmd, int do_background)
+{
+	int *err_codes = malloc(num_commands*sizeof(int));
+	execute_pipe(commands, num_commands, err_codes);
+	struct backgroundCommand *nextNode = malloc(sizeof(struct backgroundCommand));
+	nextNode->pid = 0;
+	nextNode->pipe = num_commands;
+	nextNode->err_codes = malloc(num_commands * sizeof(int));
+	for(int i = 0; i < num_commands; i++)
+	{
+		nextNode->err_codes[i] = err_codes[i];
+	}
+	append(nextNode, backgroundCommands);
+	setCurrentCommand(nextNode, cmd, do_background);
+	*num_processes = checkProcessCompletion(backgroundCommands, *num_processes, cmd, do_background);
+}
+
+/*
+Purpose:
 	if theres a valid special character we need to call specialized functions
 Inputs:
 	@toCheck: char to check
@@ -434,6 +466,55 @@ void our_cd(char* path, int* status)
 Purpose:
 	Parse the command line
 Inputs:
+	@special_command: current character in parser
+	@i: index of command line
+	@command: user entered command line
+	@commands: empty array of command objects that the main function can access
+	after parsing
+Source:
+	None
+*/
+int redirectionParsing(char special_command, int* i, const char* command, struct Command *commands)
+{
+	int index = *i;
+	if(special_command == '<'){
+		index++;
+		while(command[index] == ' '){ //eat up all whitespace
+			index++;
+		}
+		char* filename = malloc(COMMANDLINE_MAX);
+		index = get_filename(filename, command, index);
+		index--; //go back one
+		if(strlen(filename) == 0) //no file
+		{
+			return NO_INPUT_FILE;
+		}
+		commands->input_file = malloc(strlen(filename));
+		memcpy(commands->input_file, filename, strlen(filename));
+	}
+	if(special_command == '>'){
+		index++;
+		while(command[index] == ' '){ //eat up all whitespace
+			index++;
+		}
+		char* filename = malloc(COMMANDLINE_MAX);
+		index = get_filename(filename, command, index);
+		index--; //go back one
+		if(strlen(filename) == 0) //no file
+		{
+			return NO_OUTPUT_FILE;
+		}
+		commands->output_file = malloc(strlen(filename));
+		memcpy(commands->output_file, filename, strlen(filename));
+	}
+	*i = index;
+	return NO_ERR;
+}
+
+/*
+Purpose:
+	Parse the command line
+Inputs:
 	@commands: empty array of command objects that the main function can access
 	after parsing
 	@command: first command
@@ -466,36 +547,10 @@ int parse_args(struct Command *commands, const char* command, int* num_commands,
 				buffer_index = 0;
 			}
 			char special_command = command[i];
-
-			if(special_command == '<'){
-				i++;
-				while(command[i] == ' '){ //eat up all whitespace
-					i++;
-				}
-				char* filename = malloc(COMMANDLINE_MAX);
-				i = get_filename(filename, command, i);
-				i--; //go back one
-				if(strlen(filename) == 0) //no file
-				{
-					return NO_INPUT_FILE;
-				}
-				commands->input_file = malloc(strlen(filename));
-				memcpy(commands->input_file, filename, strlen(filename));
-			}
-			if(special_command == '>'){
-				i++;
-				while(command[i] == ' '){ //eat up all whitespace
-					i++;
-				}
-				char* filename = malloc(COMMANDLINE_MAX);
-				i = get_filename(filename, command, i);
-				i--; //go back one
-				if(strlen(filename) == 0) //no file
-				{
-					return NO_OUTPUT_FILE;
-				}
-				commands->output_file = malloc(strlen(filename));
-				memcpy(commands->output_file, filename, strlen(filename));
+			int redirection_err = redirectionParsing(special_command, &i, command, commands);
+			if(redirection_err)
+			{
+				return redirection_err;
 			}
 			if(special_command == '|') //copy buffer into last part of command, setup new command
 			{
@@ -525,23 +580,19 @@ int parse_args(struct Command *commands, const char* command, int* num_commands,
 				*background = 1;
 			}
 		} //end special character check
-
-		// otherwise add character to buffer
-		else if(command[i] != ' '){
+		else if(command[i] != ' ') // otherwise add character to buffer
+		{
 			buffer[buffer_index] = command[i];
 			buffer_index++;
 		}
-
-		//eat up whitespace
-		else{
-			while(command[i] == ' '){
+		else
+		{
+			while(command[i] == ' ')
+			{
 				i++;
 			}
-			//go back one since for loop increments
-			i--;
-
-			//Left over characters in the buffer that are no longer needed
-			if(buffer_index > 0)
+			i--; 	//go back one since for loop increments
+			if(buffer_index > 0) //Left over characters in the buffer that need to be added to commands
 			{
 				commands->args[new_args_index] = malloc(buffer_index);
 				memcpy(commands->args[new_args_index], buffer, buffer_index);
@@ -582,6 +633,29 @@ int parse_args(struct Command *commands, const char* command, int* num_commands,
 	}
 	*num_commands = struct_index + 1;
 	return NO_ERR;
+}
+
+/*
+Purpose:
+	child should not execute these built in commands
+Input:
+	@commands: linked list of command objects from command line
+Source:
+	none
+*/
+void checkParentCommands(struct Command *commands)
+{
+	if(strcmp(commands->args[0], "exit") == 0)
+	{
+		exit(0);
+	}
+	else if (strcmp(commands->args[0], "pwd") == 0)
+	{
+		exit(0);
+	}
+	else if(strcmp(commands->args[0], "cd") == 0){
+		exit(0);
+	}
 }
 
 /*
@@ -635,7 +709,6 @@ int main(int argc, char *argv[])
 	int num_commands;
 	int num_processes = 0;
 	int do_background = 0;
-
 	int do_piping = 0;
 
 	//Until the user exits, continue accepting input and throw errors if its invalid
@@ -673,19 +746,7 @@ int main(int argc, char *argv[])
 		num_processes++;
 		if(do_piping)
 		{
-			int *err_codes = malloc(num_commands*sizeof(int));
-			execute_pipe(commands, num_commands, err_codes);
-			struct backgroundCommand *nextNode = malloc(sizeof(struct backgroundCommand));
-			nextNode->pid = 0;
-			nextNode->pipe = num_commands;
-			nextNode->err_codes = malloc(num_commands * sizeof(int));
-			for(int i = 0; i < num_commands; i++)
-			{
-				nextNode->err_codes[i] = err_codes[i];
-			}
-			append(nextNode, backgroundCommands);
-			setCurrentCommand(nextNode, cmd, do_background);
-			num_processes = checkProcessCompletion(backgroundCommands, num_processes, cmd, do_background);
+			our_pipe(commands, num_commands, &num_processes, backgroundCommands, cmd, do_background);
 		}
 		else
 		{
@@ -710,17 +771,7 @@ int main(int argc, char *argv[])
 						continue;
 					}
 				}
-				if(strcmp(commands->args[0], "exit") == 0)
-				{ //don't want child to execute these commands
-					exit(0);
-				}
-				else if (strcmp(commands->args[0], "pwd") == 0)
-				{
-					exit(0);
-				}
-				else if(strcmp(commands->args[0], "cd") == 0){
-					exit(0);
-				}
+				checkParentCommands(commands);
 				status = execvp(commands->args[0], commands->args);
 				if(status == -1)
 				{
@@ -740,7 +791,6 @@ int main(int argc, char *argv[])
 						continue;
 					}
 					our_exit();
-
 				}
 				else if (strcmp(commands->args[0], "pwd") == 0)
 				{
