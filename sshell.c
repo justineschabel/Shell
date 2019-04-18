@@ -751,7 +751,7 @@ int main(int argc, char *argv[])
 					if(temp->cmd != NULL)
 					{
 						fprintf(stderr, "Error: active jobs still running\n");
-						fprintf(stderr, "+ completed '%s' [%d]\n", cmd , 1);
+						//fprintf(stderr, "+ completed '%s' [%d]\n", cmd , 1);
 						exitErr = 1;
 					}
 					temp = temp->next;
