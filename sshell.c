@@ -13,6 +13,8 @@ Elements:
 	@args: a character array that stores the command and its arguments
 	@input_file: if theres input redirection this is set to the file name
 	@output_file: if theres output redirection this is set to the file name
+Source:
+	None
 */
 struct Command {
 	char** args;
@@ -24,7 +26,11 @@ struct Command {
 
 /*
 Purpose:
-	We used a separate struct for the background command because <ENTER REASON/SOURCE>
+	We used a separate struct for the background command because we need to keep an array
+	of the commands running in the background and we want to store more information than we would
+	for a normal command (such as pid)
+Source:
+	None
 */
 struct backgroundCommand {
 	char* cmd;
@@ -64,7 +70,7 @@ Purpose:
 Inputs:
 	@filename: command line file name to be used as input
 Source:
-	Semi adapted from lecture slides
+	Adapted from lecture slides
 **/
 int redirect_input(char* filename){
 	int fd = open(filename, O_RDONLY);
@@ -83,7 +89,7 @@ Purpose:
 Inputs:
 	@filename: command line file name to be used as output
 Source:
-	Semi adapted from lecture slides
+	Adapted from lecture slides
 **/
 int redirect_output(char* filename){
 	int fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
@@ -96,6 +102,15 @@ int redirect_output(char* filename){
 	return 0;
 }
 
+/*
+Purpose:
+	Append a background command to the linked list of commmands 	
+Inputs:
+	@node: node to add to the linked list
+	@head: the beginning of the linked list
+Source:
+	None
+*/
 void append(struct backgroundCommand *node, struct backgroundCommand *head)
 {
 	struct backgroundCommand *temp = head;
@@ -111,62 +126,45 @@ void append(struct backgroundCommand *node, struct backgroundCommand *head)
 	node->next = NULL;
 }
 
+/*
+Purpose:
+
+Inputs:
+	@curr:
+	@cmd:
+	@do_background:
+Source:
+	None
+*/
 void setCurrentCommand(struct backgroundCommand *curr, char* cmd, int do_background)
 {
-	//int status = 0;
 	curr->cmd = malloc(strlen(cmd));
 	memcpy(curr->cmd, cmd, strlen(cmd));
 	if(do_background)
 	{
 		curr->runInBack = 1;
-		//waitpid(curr->pid, &status, WNOHANG);
 	}
 	else
 	{
 		curr->runInBack = 0;
-		//waitpid(curr->pid, &status, 0);
 	}
 	curr->next = NULL;
 }
 
 /*
 Purpose:
-	<Why do we need this function>
+	If a current process or a process in the background completes, we need to rearrange the linked 
+	list
 Inputs:
-	@background_commmands: array of commands that need to be ran
+	@background_commmands: array of commands that need to be ran/are running
 	@num_processes: length of background_commands array
 	@cmd: the user entered command
 	@do_background: if last executed command was to be done in the background
-	@status:
 Source:
-	<Did you find help on a stack overflow post that we should site?>
+	None
 */
 int checkProcessCompletion(struct backgroundCommand *backgroundCommands, int num_processes, char* cmd, int do_background)
 {
-	//struct backgroundCommand *newCommand = malloc(sizeof(struct backgroundCommand));
-	//append(newCommand, backgroundCommands);
-	/*if(backgroundCommands[num_processes - 1].pid != -1)
-	{
-		backgroundCommands[num_processes - 1].cmd = malloc(strlen(cmd));
-		memcpy(backgroundCommands[num_processes - 1].cmd, cmd, strlen(cmd));
-		if(do_background)
-		{
-			backgroundCommands[num_processes - 1].runInBack = 1;
-			waitpid(backgroundCommands[num_processes - 1].pid, &status, WNOHANG);
-		}
-		else
-		{
-			backgroundCommands[num_processes - 1].runInBack = 0;
-			waitpid(backgroundCommands[num_processes - 1].pid, &status, 0);
-		}
-	}
-	else
-	{
-		num_processes--;
-	}*/
-
-
-	//int initialProcesses = num_processes;
 	int ret;
 	int status = 0;
 	struct backgroundCommand *temp = backgroundCommands;
@@ -191,7 +189,8 @@ int checkProcessCompletion(struct backgroundCommand *backgroundCommands, int num
 		{
 			if(temp->pipe)
 			{
-				fprintf(stderr, "+ completed '%s' ", cmd); //add to checkProcessCompletion to make it work with background pipes
+				//add to checkProcessCompletion to make it work with background pipes
+				fprintf(stderr, "+ completed '%s' ", cmd); 
 				for(int i = 0; i < temp->pipe; i++)
 				{
 					fprintf(stderr, "[%d]", temp->err_codes[i]);
@@ -209,7 +208,6 @@ int checkProcessCompletion(struct backgroundCommand *backgroundCommands, int num
 					fprintf(stderr, "+ completed '%s' [%d]\n", temp->cmd , WEXITSTATUS(status));
 				}
 			}
-			//num_processes--;
 			if(temp->next == NULL)
 			{
 				if(prev != NULL)
@@ -229,40 +227,6 @@ int checkProcessCompletion(struct backgroundCommand *backgroundCommands, int num
 		prev = temp;
 		temp = temp->next;
 	}
-
-
-	/*for(int i = 0; i < initialProcesses; i++)
-	{
-		if(backgroundCommands[i].runInBack == 1)
-		{
-			ret = waitpid(backgroundCommands[i].pid, &status, WNOHANG);
-		}
-		else
-		{
-			ret = waitpid(backgroundCommands[i].pid, &status, 0);
-		}
-		if(ret != 0)
-		{
-			if(backgroundCommands[i].pipe)
-			{
-				fprintf(stderr, "+ completed '%s' ", cmd); //add to checkProcessCompletion to make it work with background pipes
-				for(int i = 0; i < backgroundCommands[i].pipe; i++)
-				{
-					fprintf(stderr, "[%d]", backgroundCommands[i].err_codes[i]);
-				}
-				fprintf(stderr, "\n");
-				free(backgroundCommands[i].err_codes);
-				backgroundCommands[i].pipe = 0;
-			}
-			else
-			{
-				fprintf(stderr, "+ completed '%s' [%d]\n", backgroundCommands[i].cmd , WEXITSTATUS(status));
-			}
-			backgroundCommands[i].cmd = "";
-			backgroundCommands[i].pid = 0;
-			num_processes--;
-		}
-	}*/
 	return num_processes;
 }
 
@@ -273,11 +237,14 @@ Inputs:
 	@commands: array of commands, each one separated by a pipe
 	@num_commands: length of commands array
 	@error_codes: keeps track of each commands error code (so main can print them out after all are done)
+Source:
+	Piazza Post 121 + in comments Professor mentioned you could essentially do a loop through all the commands
 */
 void execute_pipe(struct Command *commands, int num_commands, int* err_codes){
 	int *fd = malloc(2 * (num_commands - 1) * sizeof(int));
 	int stat = 0;
 	struct Command *head = commands;
+
 	//create all pipes first, one less pipe than number of commands
 	for(int i = 0; i < num_commands - 1; i++)
 	{
@@ -334,7 +301,7 @@ void execute_pipe(struct Command *commands, int num_commands, int* err_codes){
 				close(fd[i]);
 			}
 
-			//execute the command - creates entirely new process and should never return
+			//execute the command: creates entirely new process and should never return
 			stat = execvp(commands->args[0], commands->args);
 			if(stat == -1)
 			{
@@ -370,13 +337,16 @@ int isSpecialChar(char toCheck)
 
 /*
 Purpose:
-	after reading < or > we need to parse the filename
+	after reading < or > we need to parse the filename starting from where we 
+	left off in the command line
 Inputs:
 	@filename: char* so we can access the filename when we return
 	@command: We need to parse the file name out of the original command line
 	@starting index: We need to start from right after the < or >
 Outputs:
 	@command_index: We need to finish parsing from the index immediately after the filename
+Source:
+	None
 */
 int get_filename(char* filename, const char* command, int starting_index){
 	int filename_index = 0;
@@ -408,7 +378,7 @@ Inputs:
 	@path: path entered in command line
 	@status: blank pointer, used to return exit status of cd
 Source:
-	<ENTER SOURCE>
+	None (provided documentaton from the prompt)
 */
 void our_cd(char* path, int* status){
 	//special case, where the path wasnt explicitly given
@@ -431,13 +401,15 @@ void our_cd(char* path, int* status){
 
 /*
 Purpose:
-	parse the command line
+	Parse the command line
 Inputs:
 	@commands: empty array of command objects that the main function can access after parsing
 	@command: first command
 	@num_commands: return number of commands (length of commands array)
 	@do_piping: Let main know there is piping so it can be handled properly
 	@background: Let main know this command needs to be a background process
+Source:
+	None
 */
 int parse_args(struct Command *commands, const char* command, int* num_commands, int* do_piping, int* background){ //special characters (< > & |) can have not spaces around them, so need to check for those specifically
 	char *buffer = malloc(COMMANDLINE_MAX);
@@ -535,7 +507,7 @@ int parse_args(struct Command *commands, const char* command, int* num_commands,
 			//go back one since for loop increments
 			i--;
 
-			//buffer left over <EXPLANATION>
+			//Left over characters in the buffer that are no longer needed 
 			if(buffer_index > 0)
 			{
 				//fprintf(stderr, "Left over buffer: %s\n", buffer);
