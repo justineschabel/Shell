@@ -767,9 +767,7 @@ int main(int argc, char *argv[])
 				{
 						our_exit();
 				}
-				else{
-					continue;
-				}
+
 			}
 			else if (strcmp(commands->args[0], "pwd") == 0){
 				our_pwd();
