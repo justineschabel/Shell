@@ -26,8 +26,9 @@ struct Command {
 
 /*
 Purpose:
-	We used a separate struct for the background command because we need to keep an array
-	of the commands running in the background and we want to store more information than we would
+	We used a separate struct for the background command because we need to keep
+	an array of the commands running in the background, and the order the
+	commands were entered and we want to store more information than we would
 	for a normal command (such as pid)
 Source:
 	None
@@ -36,8 +37,8 @@ struct backgroundCommand {
 	char* cmd;
 	int pid;
 	int pipe; //holds number of operations in whole command
-	int* err_codes;
-	int errStat;
+	int* err_codes; //for pipe commands
+	int errStat; //status for when a command fails initially
 	int runInBack;
 
 	struct backgroundCommand *next;
@@ -104,7 +105,7 @@ int redirect_output(char* filename){
 
 /*
 Purpose:
-	Append a background command to the linked list of commmands 	
+	Append a background command to the linked list of commmands
 Inputs:
 	@node: node to add to the linked list
 	@head: the beginning of the linked list
@@ -128,11 +129,12 @@ void append(struct backgroundCommand *node, struct backgroundCommand *head)
 
 /*
 Purpose:
-
+	Second function for adding to background job linked list,
+	sets the user entered command and if it needs to be run in the background
 Inputs:
-	@curr:
-	@cmd:
-	@do_background:
+	@curr: current command
+	@cmd: user entered command
+	@do_background: 1 if there is &
 Source:
 	None
 */
@@ -153,8 +155,42 @@ void setCurrentCommand(struct backgroundCommand *curr, char* cmd, int do_backgro
 
 /*
 Purpose:
-	If a current process or a process in the background completes, we need to rearrange the linked 
-	list
+	Print out command after completion
+Inputs:
+	@command: current completed command to print
+	@status: exit status of command
+Source:
+	None
+*/
+void printCommandCompletion(struct backgroundCommand *command, char* cmd, int status)
+{
+	if(command->pipe)
+	{
+		//add to checkProcessCompletion to make it work with background pipes
+		fprintf(stderr, "+ completed '%s' ", cmd);
+		for(int i = 0; i < command->pipe; i++)
+		{
+			fprintf(stderr, "[%d]", command->err_codes[i]);
+		}
+		fprintf(stderr, "\n");
+	}
+	else
+	{
+		if(command->errStat) //needed to get proper error code from process
+		{
+			fprintf(stderr, "+ completed '%s' [%d]\n", command->cmd, command->errStat);
+		}
+		else
+		{
+			fprintf(stderr, "+ completed '%s' [%d]\n", command->cmd, WEXITSTATUS(status));
+		}
+	}
+}
+
+/*
+Purpose:
+	If a current process or a process in the background completes,
+	we need to rearrange the linked	list
 Inputs:
 	@background_commmands: array of commands that need to be ran/are running
 	@num_processes: length of background_commands array
@@ -171,7 +207,7 @@ int checkProcessCompletion(struct backgroundCommand *backgroundCommands, int num
 	struct backgroundCommand *prev = NULL;
 	while(temp != NULL)
 	{
-		if(temp->cmd == NULL)
+		if(temp->cmd == NULL) //empty command, logically remove from linked list
 		{
 			prev = temp;
 			temp = temp->next;
@@ -185,44 +221,25 @@ int checkProcessCompletion(struct backgroundCommand *backgroundCommands, int num
 		{
 			ret = waitpid(temp->pid, &status, 0);
 		}
-		if(ret != 0)
+		if(ret != 0) // ret is nonzero if a command is finished
 		{
-			if(temp->pipe)
+			printCommandCompletion(temp, cmd, status);
+			if(temp->next == NULL) //last command in linked list
 			{
-				//add to checkProcessCompletion to make it work with background pipes
-				fprintf(stderr, "+ completed '%s' ", cmd); 
-				for(int i = 0; i < temp->pipe; i++)
-				{
-					fprintf(stderr, "[%d]", temp->err_codes[i]);
-				}
-				fprintf(stderr, "\n");
-			}
-			else
-			{
-				if(temp->errStat)
-				{
-					fprintf(stderr, "+ completed '%s' [%d]\n", temp->cmd , temp->errStat);
-				}
-				else
-				{
-					fprintf(stderr, "+ completed '%s' [%d]\n", temp->cmd , WEXITSTATUS(status));
-				}
-			}
-			if(temp->next == NULL)
-			{
-				if(prev != NULL)
+				if(prev != NULL) //not first command in linked list
 				{
 						prev->next = NULL;
 				}
 			}
 			else
 			{
-				if(prev != NULL)
+				if(prev != NULL) //neither first nor last command
 				{
 					prev->next = temp->next;
 				}
 			}
 			free(temp);
+			num_processes--;
 		}
 		prev = temp;
 		temp = temp->next;
@@ -236,11 +253,14 @@ Purpose:
 Inputs:
 	@commands: array of commands, each one separated by a pipe
 	@num_commands: length of commands array
-	@error_codes: keeps track of each commands error code (so main can print them out after all are done)
+	@error_codes: keeps track of each commands error code (so main can print
+	them out after all are done)
 Source:
-	Piazza Post 121 + in comments Professor mentioned you could essentially do a loop through all the commands
+	Piazza Post 121 + in comments Professor mentioned you could essentially
+	do a loop through all the commands
 */
-void execute_pipe(struct Command *commands, int num_commands, int* err_codes){
+void execute_pipe(struct Command *commands, int num_commands, int* err_codes)
+{
 	int *fd = malloc(2 * (num_commands - 1) * sizeof(int));
 	int stat = 0;
 	struct Command *head = commands;
@@ -329,6 +349,12 @@ void execute_pipe(struct Command *commands, int num_commands, int* err_codes){
 /*
 Purpose:
 	if theres a valid special character we need to call specialized functions
+Inputs:
+	@toCheck: char to check
+Outputs:
+	1 if special character, 0 otherwise
+Source:
+	None
 */
 int isSpecialChar(char toCheck)
 {
@@ -337,18 +363,21 @@ int isSpecialChar(char toCheck)
 
 /*
 Purpose:
-	after reading < or > we need to parse the filename starting from where we 
+	after reading < or > we need to parse the filename starting from where we
 	left off in the command line
 Inputs:
-	@filename: char* so we can access the filename when we return
+	@filename: char* where filename is stored, so
+	we can access the filename when we return
 	@command: We need to parse the file name out of the original command line
 	@starting index: We need to start from right after the < or >
 Outputs:
-	@command_index: We need to finish parsing from the index immediately after the filename
+	@command_index: We need to finish parsing from the index immediately
+	after the filename
 Source:
 	None
 */
-int get_filename(char* filename, const char* command, int starting_index){
+int get_filename(char* filename, const char* command, int starting_index)
+{
 	int filename_index = 0;
 	int command_index = starting_index;
 	while(command[command_index] != ' ' && command[command_index] != '\0' && isSpecialChar(command[command_index]) == 0) //last condition
@@ -361,13 +390,15 @@ int get_filename(char* filename, const char* command, int starting_index){
 }
 
 
-void our_exit(){
+void our_exit()
+{
 	fprintf(stderr, "Bye...\n");
 	exit(0);
 }
 
 
-void our_pwd(){
+void our_pwd()
+{
 	fprintf(stdout, "%s\n" , getcwd(NULL, 0));
 }
 
@@ -380,15 +411,16 @@ Inputs:
 Source:
 	None (provided documentaton from the prompt)
 */
-void our_cd(char* path, int* status){
+void our_cd(char* path, int* status)
+{
 	//special case, where the path wasnt explicitly given
-	if(strcmp(path, "..") == 0){
+	if(strcmp(path, "..") == 0)
+	{
 		char* current_path = getcwd(NULL, 0);
 		char* lastSlash = strrchr(current_path, '/');
 		free(path);
 		path = malloc(lastSlash - current_path + 1);
 		memcpy(path, current_path, lastSlash - current_path + 1);
-
 	}
 	*status = chdir(path);
 	if(*status < 0) //error changing directory
@@ -396,22 +428,23 @@ void our_cd(char* path, int* status){
 		fprintf(stderr, "Error: no such directory\n");
 		*status = 1;
 	}
-	return;
 }
 
 /*
 Purpose:
 	Parse the command line
 Inputs:
-	@commands: empty array of command objects that the main function can access after parsing
+	@commands: empty array of command objects that the main function can access
+	after parsing
 	@command: first command
-	@num_commands: return number of commands (length of commands array)
+	@num_commands: return number of commands when piping
 	@do_piping: Let main know there is piping so it can be handled properly
 	@background: Let main know this command needs to be a background process
 Source:
 	None
 */
-int parse_args(struct Command *commands, const char* command, int* num_commands, int* do_piping, int* background){ //special characters (< > & |) can have not spaces around them, so need to check for those specifically
+int parse_args(struct Command *commands, const char* command, int* num_commands, int* do_piping, int* background)
+{
 	char *buffer = malloc(COMMANDLINE_MAX);
 	int buffer_index = 0;
 	int new_args_index = 0;
@@ -507,10 +540,9 @@ int parse_args(struct Command *commands, const char* command, int* num_commands,
 			//go back one since for loop increments
 			i--;
 
-			//Left over characters in the buffer that are no longer needed 
+			//Left over characters in the buffer that are no longer needed
 			if(buffer_index > 0)
 			{
-				//fprintf(stderr, "Left over buffer: %s\n", buffer);
 				commands->args[new_args_index] = malloc(buffer_index);
 				memcpy(commands->args[new_args_index], buffer, buffer_index);
 				memset(buffer, 0, buffer_index);
@@ -566,25 +598,25 @@ int errorMessage(int err)
 	int noErr = 1;
 	switch (err) {
 		case INV_CMDLINE:
-		fprintf(stderr, "Error: invalid command line\n");
-		break;
+			fprintf(stderr, "Error: invalid command line\n");
+			break;
 		case NO_INPUT_FILE:
-		fprintf(stderr, "Error: no input file\n");
-		break;
+			fprintf(stderr, "Error: no input file\n");
+			break;
 		case NO_OUTPUT_FILE:
-		fprintf(stderr, "Error: no output file\n");
-		break;
+			fprintf(stderr, "Error: no output file\n");
+			break;
 		case MISLOC_INPUT_REDIR:
-		fprintf(stderr, "Error: mislocated input redirection\n");
-		break;
+			fprintf(stderr, "Error: mislocated input redirection\n");
+			break;
 		case MISLOC_OUTPUT_REDIR:
-		fprintf(stderr, "Error: mislocated output redirection\n");
-		break;
+			fprintf(stderr, "Error: mislocated output redirection\n");
+			break;
 		case MISLOC_AMP:
-		fprintf(stderr, "Error: mislocated background sign\n");
-		break;
+			fprintf(stderr, "Error: mislocated background sign\n");
+			break;
 		default:
-		noErr = 0;
+			noErr = 0;
 	}
 	return noErr;
 }
@@ -609,15 +641,6 @@ int main(int argc, char *argv[])
 	//Until the user exits, continue accepting input and throw errors if its invalid
 	while(1)
 	{
-		/*while(commands->next != NULL)
-		{
-			struct Command *temp = commands->next;
-			if(temp->next != NULL)
-			{
-				commands->next = temp->next;
-			}
-			free(temp);
-		}*/
 		commands->args = malloc(17 * sizeof(char*));
 		commands->input_file = "";
 		commands->output_file = "";
@@ -630,29 +653,24 @@ int main(int argc, char *argv[])
 			printf("%s", cmd);
 			fflush(stdout);
 		}
-		num_processes++;
 		if(length > 1)
 		{
 			cmd[length-1] = '\0';
 		}
 		else
 		{
-			//backgroundCommands[num_processes - 1].pid = -1;
 			num_processes = checkProcessCompletion(backgroundCommands, num_processes, cmd, 0);
 			continue;
 		}
 		do_piping = 0;
-
-		//Does this need to be declared and set here or should it be declared outside loop and reset?
-		// int do_background = 0;
 		do_background = 0;
 		status = parse_args(commands, cmd, &num_commands, &do_piping, &do_background);
 		int error = errorMessage(status);
 		if(error)
 		{
-			num_processes--;
 			continue;
 		}
+		num_processes++;
 		if(do_piping)
 		{
 			int *err_codes = malloc(num_commands*sizeof(int));
@@ -661,11 +679,6 @@ int main(int argc, char *argv[])
 			nextNode->pid = 0;
 			nextNode->pipe = num_commands;
 			nextNode->err_codes = malloc(num_commands * sizeof(int));
-
-			//backgroundCommands[num_processes - 1].pid = 0;
-			//backgroundCommands[num_processes - 1].pipe = num_commands;
-			//backgroundCommands[num_processes - 1].err_codes = malloc(num_commands * sizeof(int));
-			//memcpy(nextNode->err_codes, err_codes, num_commands);
 			for(int i = 0; i < num_commands; i++)
 			{
 				nextNode->err_codes[i] = err_codes[i];
@@ -697,87 +710,69 @@ int main(int argc, char *argv[])
 						continue;
 					}
 				}
-				if(strcmp(commands->args[0], "exit") == 0){ //don't want child to execute these commands
-				exit(0);
-			}
-			else if (strcmp(commands->args[0], "pwd") == 0){
-				exit(0);
-			}
-			else if(strcmp(commands->args[0], "cd") == 0){
-				exit(0);
-			}
-			status = execvp(commands->args[0], commands->args);
-			if(status == -1)
-			{
-				fprintf(stderr, "Error: command not found\n");
-			}
-			exit(1);
-		}
-		else if(pid > 0)
-		{
-			if(strcmp(commands->args[0], "exit") == 0){
-				struct backgroundCommand *temp = backgroundCommands;
-				int exitErr = 0;
-				while(temp != NULL)
+				if(strcmp(commands->args[0], "exit") == 0)
+				{ //don't want child to execute these commands
+					exit(0);
+				}
+				else if (strcmp(commands->args[0], "pwd") == 0)
 				{
-					if(temp->cmd != NULL)
+					exit(0);
+				}
+				else if(strcmp(commands->args[0], "cd") == 0){
+					exit(0);
+				}
+				status = execvp(commands->args[0], commands->args);
+				if(status == -1)
+				{
+					fprintf(stderr, "Error: command not found\n");
+				}
+				exit(1);
+			}
+			else if(pid > 0)
+			{
+				if(strcmp(commands->args[0], "exit") == 0)
+				{
+					if(num_processes > 1)
 					{
 						fprintf(stderr, "Error: active jobs still running\n");
 						fprintf(stderr, "+ completed '%s' [%d]\n", cmd , 1);
-						exitErr = 1;
+						num_processes--;
+						continue;
 					}
-					temp = temp->next;
+					our_exit();
+
 				}
-				/*if(num_processes > 1)
+				else if (strcmp(commands->args[0], "pwd") == 0)
 				{
-					fprintf(stderr, "Error: active jobs still running\n");
-					fprintf(stderr, "+ completed '%s' [%d]\n", cmd , 1);
+					our_pwd();
+					fprintf(stderr, "+ completed '%s' [%d]\n", cmd , 0);
 					num_processes--;
-					continue;
-				}*/
-				if(!exitErr)
-				{
-						our_exit();
 				}
-
-			}
-			else if (strcmp(commands->args[0], "pwd") == 0){
-				our_pwd();
-				fprintf(stderr, "+ completed '%s' [%d]\n", cmd , 0);
-				num_processes--;
-			}
-			else if(strcmp(commands->args[0], "cd") == 0){
-				our_cd(commands->args[1], &status);
-				fprintf(stderr, "+ completed '%s' [%d]\n", cmd , status);
-				num_processes--;
-			}
-			else
-			{
-				if(!do_background)
+				else if(strcmp(commands->args[0], "cd") == 0)
 				{
-					waitpid(pid, &status, 0);
+					our_cd(commands->args[1], &status);
+					fprintf(stderr, "+ completed '%s' [%d]\n", cmd , status);
+					num_processes--;
 				}
-				//printf("%d", WEXITSTATUS(status));
-
-				struct backgroundCommand *nextNode = malloc(sizeof(struct backgroundCommand));
-				nextNode->pid = pid;
-				nextNode->pipe = 0;
-				if(WEXITSTATUS(status) > 0)
+				else
 				{
-					nextNode->errStat = WEXITSTATUS(status);
+					if(!do_background)
+					{
+						waitpid(pid, &status, 0);
+					}
+					struct backgroundCommand *nextNode = malloc(sizeof(struct backgroundCommand));
+					nextNode->pid = pid;
+					nextNode->pipe = 0;
+					if(WEXITSTATUS(status) > 0)
+					{
+						nextNode->errStat = WEXITSTATUS(status);
+					}
+					append(nextNode, backgroundCommands);
+					setCurrentCommand(nextNode, cmd, do_background);
+					num_processes = checkProcessCompletion(backgroundCommands, num_processes, cmd, do_background);
 				}
-				append(nextNode, backgroundCommands);
-				setCurrentCommand(nextNode, cmd, do_background);
-				num_processes = checkProcessCompletion(backgroundCommands, num_processes, cmd, do_background);
 			}
 		}
-		else
-		{
-			fprintf(stderr, "u gofed\n");
-		}
-	}
-
-} //while
-
-return EXIT_SUCCESS;
+	} //while
+	return EXIT_SUCCESS;
 }
