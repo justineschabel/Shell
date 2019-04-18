@@ -751,7 +751,7 @@ int main(int argc, char *argv[])
 					if(temp->cmd != NULL)
 					{
 						fprintf(stderr, "Error: active jobs still running\n");
-						//fprintf(stderr, "+ completed '%s' [%d]\n", cmd , 1);
+						fprintf(stderr, "+ completed '%s' [%d]\n", cmd , 1);
 						exitErr = 1;
 					}
 					temp = temp->next;
@@ -766,6 +766,9 @@ int main(int argc, char *argv[])
 				if(!exitErr)
 				{
 						our_exit();
+				}
+				else{
+					continue;
 				}
 			}
 			else if (strcmp(commands->args[0], "pwd") == 0){
